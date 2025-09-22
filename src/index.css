@@ -1,0 +1,10 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Leaflet icon fix for Vite/Parcel environments */
+.leaflet-container {
+	height: 100%;
+	width: 100%;
+}
+
