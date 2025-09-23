@@ -5,7 +5,7 @@
   - Exports: signup, login
 */
 
-const DEFAULT_AUTH_BASE = 'http://localhost:8000/api/auth';
+const DEFAULT_AUTH_BASE = 'http://localhost:5000/api/auth';
 const AUTH_BASE = import.meta.env.VITE_AUTH_API_BASE_URL || DEFAULT_AUTH_BASE;
 
 export type SignupPayload = {
