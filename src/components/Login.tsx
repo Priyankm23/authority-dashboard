@@ -1,8 +1,6 @@
-import React, { useState } from 'react';
-import { Shield, Users, Settings, Eye, EyeOff } from 'lucide-react';
-// To re-enable real API login, uncomment the import below and the call in handleLogin
-// import { login as authLogin } from '../api/auth';
-import { mockUsers } from '../utils/mockData';
+import React, { useState, useEffect } from 'react';
+import { Shield, Users, AlertTriangle, Eye, EyeOff } from 'lucide-react';
+import { login as authLogin } from '../api/auth';
 import { User } from '../types';
 
 interface LoginProps {
@@ -15,126 +13,92 @@ const Login: React.FC<LoginProps> = ({ onLogin, onShowSignup }) => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
-  const [selectedRole, setSelectedRole] = useState<'police' | 'tourism' | 'admin'>('police');
 
-  const handleLogin = (e: React.FormEvent) => {
+  // Add animation effect for SOS count
+  useEffect(() => {
+    const sosCount = document.getElementById('sosCount');
+    if (sosCount) {
+      let count = 0;
+      const targetCount = 12;
+      const duration = 2000; // 2 seconds
+      const interval = 50; // Update every 50ms
+      const step = (targetCount / (duration / interval));
+
+      const timer = setInterval(() => {
+        count += step;
+        if (count >= targetCount) {
+          count = targetCount;
+          clearInterval(timer);
+        }
+        sosCount.textContent = Math.floor(count).toString();
+      }, interval);
+
+      return () => clearInterval(timer);
+    }
+  }, []);
+
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    // Temporary: use mock users for frontend testing
-    const user = mockUsers.find(u => u.email === email && u.password === password);
-    if (user) {
-      onLogin({
-        id: `${user.role}_${Date.now()}`,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        department: user.department
-      });
-      return;
-    }
-
-    // Real API call (commented out for local testing)
-    /*
-    (async () => {
-      try {
-        const res = await authLogin(email, password);
-        if (!res.success) {
-          setError(res.message || 'Login failed');
-          return;
-        }
-        const token = res.token;
-        if (token) {
-          try { localStorage.setItem('auth_token', token); } catch (e) { }
-          // decode token and call onLogin as before
-        } else {
-          setError('No token returned from server');
-        }
-      } catch (err: any) {
-        setError(err?.message || 'Unexpected error');
+    try {
+      const res = await authLogin(email, password);
+      if (!res.success) {
+        setError(res.message || 'Login failed');
+        return;
       }
-    })();
-    */
 
-    setError('Invalid credentials. Please check your email and password.');
-  };
-
-  const roleOptions = [
-    {
-      role: 'police' as const,
-      icon: Shield,
-      title: 'Police Department',
-      description: 'Law enforcement and emergency response',
-      color: 'text-blue-600 bg-blue-50 border-blue-200'
-    },
-    {
-      role: 'tourism' as const,
-      icon: Users,
-      title: 'Tourism Department',
-      description: 'Tourist services and coordination',
-      color: 'text-green-600 bg-green-50 border-green-200'
-    },
-    {
-      role: 'admin' as const,
-      icon: Settings,
-      title: 'System Administrator',
-      description: 'System management and oversight',
-      color: 'text-purple-600 bg-purple-50 border-purple-200'
-    }
-  ];
-
-  const quickLogin = (role: 'police' | 'tourism' | 'admin') => {
-    const user = mockUsers.find(u => u.role === role);
-    if (user) {
-      setEmail(user.email);
-      setPassword(user.password);
+      // Since authentication is handled by cookies, we just need to check
+      // if login was successful and we have user data
+      if (res.user) {
+        onLogin(res.user);
+      } else {
+        setError('No user data received from server');
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Unexpected error occurred during login');
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-green-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-green-50 flex items-center justify-center px-4">
       <div className="max-w-6xl w-full grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
-        {/* Left Side - Role Selection */}
-        <div className="space-y-6">
+        {/* Left Side - Features */}
+        <div className="flex flex-col justify-center space-y-8">
           <div className="text-center lg:text-left">
             <h1 className="text-4xl font-bold text-gray-900 mb-4">
               Smart Tourist Safety
             </h1>
-            <p className="text-xl text-gray-600 mb-8">
+            <p className="text-xl text-gray-600">
               Authority Dashboard & Incident Response System
             </p>
           </div>
 
-          <div className="space-y-4">
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">Select Your Department</h2>
-            {roleOptions.map(({ role, icon: Icon, title, description, color }) => (
-              <div
-                key={role}
-                className={`p-4 rounded-lg border-2 cursor-pointer transition-all duration-200 hover:shadow-md ${
-                  selectedRole === role ? color : 'bg-white border-gray-200 hover:border-gray-300'
-                }`}
-                onClick={() => {
-                  setSelectedRole(role);
-                  quickLogin(role);
-                }}
-              >
-                <div className="flex items-center space-x-3">
-                  <Icon className={`h-6 w-6 ${selectedRole === role ? '' : 'text-gray-400'}`} />
-                  <div className="flex-1">
-                    <h3 className="font-medium text-gray-900">{title}</h3>
-                    <p className="text-sm text-gray-600">{description}</p>
-                  </div>
-                </div>
-              </div>
-            ))}
+          <div className="flex flex-col space-y-4">
+            <div className="p-4 bg-blue-50 rounded-lg transform transition-all hover:scale-105">
+              <Shield className="h-8 w-8 text-blue-600 mb-2" />
+              <h3 className="font-medium text-gray-900">Real-time Monitoring</h3>
+              <p className="text-sm text-gray-600">Track tourist activities and respond to emergencies instantly</p>
+            </div>
+            <div className="p-4 bg-green-50 rounded-lg transform transition-all hover:scale-105">
+              <Users className="h-8 w-8 text-green-600 mb-2" />
+              <h3 className="font-medium text-gray-900">Tourist Management</h3>
+              <p className="text-sm text-gray-600">Efficiently manage tourist information and safety</p>
+            </div>
+            <div className="p-4 bg-purple-50 rounded-lg transform transition-all hover:scale-105">
+              <AlertTriangle className="h-8 w-8 text-purple-600 mb-2" />
+              <h3 className="font-medium text-gray-900">Emergency Response</h3>
+              <p className="text-sm text-gray-600">Quick action protocols for crisis situations</p>
+            </div>
           </div>
 
-          <div className="text-sm text-gray-500 bg-gray-50 p-4 rounded-lg">
-            <p className="font-medium mb-2">Quick Login Credentials:</p>
-            <div className="space-y-1">
-              <p><strong>Police:</strong> police@system.gov / police123</p>
-              <p><strong>Tourism:</strong> tourism@system.gov / tourism123</p>
-              <p><strong>Admin:</strong> admin@system.gov / admin123</p>
+          <div className="flex items-center space-x-4 bg-white/80 backdrop-blur p-4 rounded-lg">
+            <div className="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center shadow-lg">
+              <div className="text-2xl font-bold text-white" id="sosCount">12</div>
+            </div>
+            <div className="flex-1">
+              <h3 className="font-medium text-gray-900">Active SOS Alerts</h3>
+              <p className="text-sm text-gray-600">Waiting for immediate assistance</p>
             </div>
           </div>
         </div>
