@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, Users, AlertTriangle } from 'lucide-react';
 import { signup } from '../api/auth';
+import { useToast } from './ToastProvider';
+import { useNavigate } from 'react-router-dom';
 
 type SignupProps = {
-  onSignupSuccess?: () => void;
   onCancel?: () => void;
 };
 
-const Signup: React.FC<SignupProps> = ({ onSignupSuccess, onCancel }) => {
+const Signup: React.FC<SignupProps> = ({ onCancel }) => {
   const [username, setUsername] = useState('');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -41,6 +42,9 @@ const Signup: React.FC<SignupProps> = ({ onSignupSuccess, onCancel }) => {
     }
   }, []);
 
+  const navigate = useNavigate();
+  const { showToast } = useToast();
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -49,19 +53,23 @@ const Signup: React.FC<SignupProps> = ({ onSignupSuccess, onCancel }) => {
     try {
       const res = await signup({ username, email, password, fullName, authorityId, role });
       if (res.success) {
-        setMessage(res.message || 'Signup successful. You can now log in.');
+        setMessage(res.message || 'Signup successful. Redirecting to dashboard...');
         setUsername('');
         setFullName('');
         setEmail('');
         setPassword('');
         setauthorityId('');
-        // notify parent to switch to login view
-        if (onSignupSuccess) onSignupSuccess();
+        showToast(res.message || 'Signup successful', 'success');
+        // if backend auto-logs in and returns user/token, redirect to dashboard
+        // otherwise, navigate to login
+        navigate('/dashboard');
       } else {
         setError(res.message || 'Signup failed');
+        showToast(res.message || 'Signup failed', 'error');
       }
     } catch (err: any) {
       setError(err?.message || 'Unexpected error');
+      showToast(err?.message || 'Unexpected error', 'error');
     } finally {
       setLoading(false);
     }

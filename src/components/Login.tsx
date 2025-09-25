@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Shield, Users, AlertTriangle, Eye, EyeOff } from 'lucide-react';
 import { login as authLogin } from '../api/auth';
 import { User } from '../types';
+import { useNavigate } from 'react-router-dom';
+import { useToast } from './ToastProvider';
 
 interface LoginProps {
   onLogin: (user: User) => void;
@@ -37,6 +39,9 @@ const Login: React.FC<LoginProps> = ({ onLogin, onShowSignup }) => {
     }
   }, []);
 
+  const navigate = useNavigate();
+  const { showToast } = useToast();
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -45,6 +50,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onShowSignup }) => {
       const res = await authLogin(email, password);
       if (!res.success) {
         setError(res.message || 'Login failed');
+        showToast(res.message || 'Login failed', 'error');
         return;
       }
 
@@ -52,11 +58,15 @@ const Login: React.FC<LoginProps> = ({ onLogin, onShowSignup }) => {
       // if login was successful and we have user data
       if (res.user) {
         onLogin(res.user);
+        showToast('Login successful', 'success');
+        navigate('/dashboard');
       } else {
         setError('No user data received from server');
+        showToast('No user data received from server', 'error');
       }
     } catch (err: any) {
       setError(err?.message || 'Unexpected error occurred during login');
+      showToast(err?.message || 'Unexpected error occurred during login', 'error');
     }
   };
 
