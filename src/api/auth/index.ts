@@ -13,8 +13,8 @@ export type SignupPayload = {
   email: string;
   password: string;
   fullName: string;
-  policeStationId: string;
-  role: 'Police Officer' | 'Tourism Officer' | 'Emergency Responder' | 'Admin';
+  authorityId: string;
+  role: 'Police Officer' | 'Tourism Officer' | 'Emergency Responder' | 'System Administrator';
 };
 
 export type AuthResponse = {
@@ -43,6 +43,7 @@ export async function login(email: string, password: string): Promise<AuthRespon
   const res = await fetch(`${AUTH_BASE}/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include', // This is required for cookies to be sent and received
     body: JSON.stringify({ email, password }),
   });
   const data = await res.json().catch(() => ({}));
@@ -51,5 +52,3 @@ export async function login(email: string, password: string): Promise<AuthRespon
   }
   return { success: true, ...data } as AuthResponse;
 }
-
-export default { signup, login };
