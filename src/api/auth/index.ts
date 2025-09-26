@@ -1,15 +1,5 @@
 // Fetch the current authenticated user using the session cookie
-export async function getCurrentUser(): Promise<AuthResponse> {
-  const res = await fetch(`${AUTH_BASE}/me`, {
-    method: 'GET',
-    credentials: 'include',
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    return { success: false, message: data?.message || data?.error || `Auth check failed: ${res.status}`, error: data?.error };
-  }
-  return { success: true, ...data } as AuthResponse;
-}
+// getCurrentUser removed: authentication checks should be driven by explicit login flows
 /*
   Auth API client
   - Separate base URL for auth-related endpoints (do not mix with other API endpoints)
