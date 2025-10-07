@@ -64,8 +64,17 @@ export async function getZoneById(id: string): Promise<Zone | null> {
   return null;
 }
 
+export async function getHighRiskZoneCount(): Promise<number> {
+  const res = await fetch(`${API_BASE}/api/geofence/count`);
+  if (!res.ok) throw new Error(`Failed to get high risk zone count: ${res.status}`);
+  const data = await res.json();
+  if (data && typeof data.highRiskZones === 'number') return data.highRiskZones;
+  return 0;
+}
+
 export default {
   createZone,
   getZones,
-  getZoneById
+  getZoneById,
+  getHighRiskZoneCount
 };

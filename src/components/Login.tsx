@@ -7,37 +7,53 @@ import { useToast } from './ToastProvider';
 
 interface LoginProps {
   onLogin: (user: User) => void;
-  onShowSignup?: () => void;
 }
 
-const Login: React.FC<LoginProps> = ({ onLogin, onShowSignup }) => {
+const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
 
-  // Add animation effect for SOS count
+  const [displayCount, setDisplayCount] = useState(0);
+
+  // Fetch SOS count from backend and animate it
   useEffect(() => {
-    const sosCount = document.getElementById('sosCount');
-    if (sosCount) {
-      let count = 0;
-      const targetCount = 12;
-      const duration = 2000; // 2 seconds
-      const interval = 50; // Update every 50ms
-      const step = (targetCount / (duration / interval));
+    const fetchSosCount = async () => {
+      try {
+        const response = await fetch('https://smart-tourist-safety-backend.onrender.com/api/authority/count', {
+          credentials: 'include'
+        });
+        const data = await response.json();
+        if (data.success) {
+          // Animate from 0 to target count
+          setDisplayCount(0); // Reset to 0
+          const targetCount = data.new;
+          const duration = 2000; // 2 seconds
+          const steps = 60;
+          const stepDuration = duration / steps;
+          const increment = targetCount / steps;
 
-      const timer = setInterval(() => {
-        count += step;
-        if (count >= targetCount) {
-          count = targetCount;
-          clearInterval(timer);
+          let currentCount = 0;
+          const timer = setInterval(() => {
+            currentCount += increment;
+            if (currentCount >= targetCount) {
+              setDisplayCount(targetCount);
+              clearInterval(timer);
+            } else {
+              setDisplayCount(Math.round(currentCount));
+            }
+          }, stepDuration);
         }
-        sosCount.textContent = Math.floor(count).toString();
-      }, interval);
+      } catch (error) {
+        console.error('Error fetching SOS count:', error);
+      }
+    };
 
-      return () => clearInterval(timer);
-    }
-  }, []);
+    fetchSosCount();
+    const interval = setInterval(fetchSosCount, 30000);
+    return () => clearInterval(interval);
+  }, []);  // Remove sosCount dependency to prevent re-animation on state updates
 
   const navigate = useNavigate();
   const { showToast } = useToast();
@@ -104,7 +120,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onShowSignup }) => {
 
           <div className="flex items-center space-x-4 bg-white/80 backdrop-blur p-4 rounded-lg">
             <div className="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center shadow-lg">
-              <div className="text-2xl font-bold text-white" id="sosCount">12</div>
+              <div className="text-2xl font-bold text-white">{displayCount}</div>
             </div>
             <div className="flex-1">
               <h3 className="font-medium text-gray-900">Active SOS Alerts</h3>
@@ -184,7 +200,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onShowSignup }) => {
           <div className="mt-6 text-center text-sm text-gray-500">
             <p>Authorized personnel only. All access is logged and monitored.</p>
             <p className="mt-3">
-              <button type="button" onClick={() => onShowSignup && onShowSignup()} className="text-blue-600 hover:underline">
+              <button type="button" onClick={() => navigate('/signup')} className="text-blue-600 hover:underline">
                 Need an account? Sign up
               </button>
             </p>

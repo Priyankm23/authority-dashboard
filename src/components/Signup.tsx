@@ -4,11 +4,9 @@ import { signup } from '../api/auth';
 import { useToast } from './ToastProvider';
 import { useNavigate } from 'react-router-dom';
 
-type SignupProps = {
-  onCancel?: () => void;
-};
+type SignupProps = {};
 
-const Signup: React.FC<SignupProps> = ({ onCancel }) => {
+const Signup: React.FC<SignupProps> = () => {
   const [username, setUsername] = useState('');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -19,28 +17,45 @@ const Signup: React.FC<SignupProps> = ({ onCancel }) => {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Add animation effect for SOS count
+  const [displayCount, setDisplayCount] = useState(0);
+
+  // Fetch SOS count from backend and animate it
   useEffect(() => {
-    const sosCount = document.getElementById('sosCount');
-    if (sosCount) {
-      let count = 0;
-      const targetCount = 12;
-      const duration = 2000; // 2 seconds
-      const interval = 50; // Update every 50ms
-      const step = (targetCount / (duration / interval));
+    const fetchSosCount = async () => {
+      try {
+        const response = await fetch('https://smart-tourist-safety-backend.onrender.com/api/authority/count', {
+          credentials: 'include'
+        });
+        const data = await response.json();
+        if (data.success) {
+          // Animate from 0 to target count
+          setDisplayCount(0); // Reset to 0
+          const targetCount = data.new;
+          const duration = 2000; // 2 seconds
+          const steps = 60;
+          const stepDuration = duration / steps;
+          const increment = targetCount / steps;
 
-      const timer = setInterval(() => {
-        count += step;
-        if (count >= targetCount) {
-          count = targetCount;
-          clearInterval(timer);
+          let currentCount = 0;
+          const timer = setInterval(() => {
+            currentCount += increment;
+            if (currentCount >= targetCount) {
+              setDisplayCount(targetCount);
+              clearInterval(timer);
+            } else {
+              setDisplayCount(Math.round(currentCount));
+            }
+          }, stepDuration);
         }
-        sosCount.textContent = Math.floor(count).toString();
-      }, interval);
+      } catch (error) {
+        console.error('Error fetching SOS count:', error);
+      }
+    };
 
-      return () => clearInterval(timer);
-    }
-  }, []);
+    fetchSosCount();
+    const interval = setInterval(fetchSosCount, 30000);
+    return () => clearInterval(interval);
+  }, []); // Remove sosCount dependency to prevent re-animation on state updates
 
   const navigate = useNavigate();
   const { showToast } = useToast();
@@ -105,7 +120,7 @@ const Signup: React.FC<SignupProps> = ({ onCancel }) => {
 
           <div className="flex items-center space-x-4 bg-white/80 backdrop-blur p-4 rounded-lg">
             <div className="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center shadow-lg">
-              <div className="text-2xl font-bold text-white" id="sosCount">12</div>
+              <div className="text-2xl font-bold text-white">{displayCount}</div>
             </div>
             <div className="flex-1">
               <h3 className="font-medium text-gray-900">Active SOS Alerts</h3>
@@ -174,7 +189,7 @@ const Signup: React.FC<SignupProps> = ({ onCancel }) => {
               <button type="submit" disabled={loading} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
                 {loading ? 'Creating...' : 'Create Account'}
               </button>
-              <button type="button" onClick={() => onCancel && onCancel()} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium py-2 px-4 rounded-lg transition-colors duration-200">
+              <button type="button" onClick={() => navigate('/login')} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium py-2 px-4 rounded-lg transition-colors duration-200">
                 Cancel
               </button>
             </div>

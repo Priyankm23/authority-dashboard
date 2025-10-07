@@ -11,10 +11,25 @@ import {
 } from 'lucide-react';
 import { mockMetrics, mockSOSAlerts, mockTourists } from '../utils/mockData';
 import { fetchAlerts, subscribeToAlerts, unsubscribe as unsubscribeAlerts, Alert as ApiAlert } from '../api/alerts';
-import { useState } from 'react';
+import { getHighRiskZoneCount } from '../api/geofence';
+import { useState, useEffect } from 'react';
 
 const Dashboard: React.FC = () => {
-  const metrics = mockMetrics;
+  const [metrics, setMetrics] = useState(mockMetrics);
+  const [highRiskZoneCount, setHighRiskZoneCount] = useState<number>(0);
+
+  useEffect(() => {
+    const fetchHighRiskCount = async () => {
+      try {
+        const count = await getHighRiskZoneCount();
+        setHighRiskZoneCount(count);
+      } catch (error) {
+        console.error('Failed to fetch high risk zone count:', error);
+      }
+    };
+    fetchHighRiskCount();
+  }, []);
+
   type DisplayAlert = {
     id: string;
     touristName?: string;
@@ -235,7 +250,7 @@ const Dashboard: React.FC = () => {
         <StatCard
           icon={MapPin}
           title="High-Risk Zones"
-          value={metrics.highRiskZones}
+          value={highRiskZoneCount}
           color="bg-orange-500"
         />
         <StatCard
