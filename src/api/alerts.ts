@@ -54,6 +54,28 @@ export async function fetchAlerts(): Promise<Alert[]> {
   return [];
 }
 
+export async function assignUnit(alertId: string): Promise<Alert> {
+  const token = localStorage.getItem('token');
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json'
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_BASE}/api/authority/alerts/${alertId}/assign`, {
+    method: 'PUT',
+    headers,
+    credentials: 'include'
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.message || `Failed to assign unit: ${res.status}`);
+  }
+  return data.data || data;
+}
+
 function notifyAll(alerts: Alert[]) {
   subscribers.forEach(s => {
     try {
@@ -113,6 +135,7 @@ export function unsubscribe(id: string) {
 
 export default {
   fetchAlerts,
+  assignUnit,
   subscribeToAlerts,
   unsubscribe,
 };

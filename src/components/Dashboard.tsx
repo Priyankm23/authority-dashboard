@@ -1,160 +1,48 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Users, 
   AlertTriangle, 
   MapPin, 
-  
   Shield, 
   TrendingUp,
   FileText,
   Activity
 } from 'lucide-react';
-import { mockMetrics, mockSOSAlerts, mockTourists } from '../utils/mockData';
-import { fetchAlerts, subscribeToAlerts, unsubscribe as unsubscribeAlerts, Alert as ApiAlert } from '../api/alerts';
-import { getHighRiskZoneCount } from '../api/geofence';
-import { useState, useEffect } from 'react';
+import { fetchDashboardStats, DashboardStats } from '../api/dashboard';
 
 const Dashboard: React.FC = () => {
-  const [metrics, setMetrics] = useState(mockMetrics);
-  const [highRiskZoneCount, setHighRiskZoneCount] = useState<number>(0);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchHighRiskCount = async () => {
+    const loadStats = async () => {
       try {
-        const count = await getHighRiskZoneCount();
-        setHighRiskZoneCount(count);
+        const data = await fetchDashboardStats();
+        setStats(data);
       } catch (error) {
-        console.error('Failed to fetch high risk zone count:', error);
+        console.error('Failed to fetch dashboard stats:', error);
+      } finally {
+        setLoading(false);
       }
     };
-    fetchHighRiskCount();
+
+    loadStats();
+    // Poll every 30 seconds for updates
+    const interval = setInterval(loadStats, 30000);
+    return () => clearInterval(interval);
   }, []);
 
-  type DisplayAlert = {
-    id: string;
-    touristName?: string;
-    severity?: string;
-    location?: { address?: string } | string;
-    description?: string;
-    status?: string;
-    timestamp?: string;
+  // Helper to determine change direction for colors
+  const getChangeType = (changeStr: string): 'up' | 'down' | 'neutral' => {
+    if (!changeStr) return 'neutral';
+    if (changeStr.startsWith('+')) return 'up';
+    if (changeStr.startsWith('-') || changeStr.match(/^\d/) /* positive number without + */) return 'down'; 
+    return 'neutral';
   };
-  const [alerts, setAlerts] = useState<DisplayAlert[] | null>(null);
-
-  const mapEmergencyToSeverity = (reason: string | undefined) => {
-    if (!reason) return 'unknown';
-    const r = reason.toLowerCase();
-    if (r.includes('cyclone') || r.includes('sos') || r.includes('urgent') || r.includes('help')) return 'critical';
-    if (r.includes('silent')) return 'low';
-    if (r.includes('fake')) return 'low';
-    return 'medium';
-  };
-
-  // pretty-print nested objects (short) for description/address fallbacks
-  const pretty = (v: any, max = 160) => {
-    if (v == null) return '';
-    if (typeof v === 'string') return v;
-    try {
-      const s = JSON.stringify(v, null, 2);
-      return s.length > max ? s.slice(0, max - 3) + '...' : s;
-    } catch (e) {
-      return String(v);
-    }
-  };
-
-  const normalizeRawAlert = (a: any): DisplayAlert => {
-    const id = a.id || a._id || Math.random().toString(36).slice(2, 9);
-    const touristName = a.touristName || a.tourist_name || (a.touristId ? `ID:${a.touristId}` : (a.tourist?.name || 'Unknown'));
-
-    // location: prefer location.locationName, otherwise format coordinates
-    let location: string | { address?: string } = '';
-    if (!a.location) {
-      if (a.address) location = { address: String(a.address) };
-      else location = { address: 'Unknown' };
-    } else if (typeof a.location === 'string') {
-      location = a.location;
-    } else if (a.location.locationName) {
-      location = { address: String(a.location.locationName) };
-    } else if (Array.isArray(a.location.coordinates) && a.location.coordinates.length >= 2) {
-      // coordinates in backend are [lng, lat] per docs; we'll format as "lat, lng"
-      const [lng, lat] = a.location.coordinates;
-      location = { address: `${lat}, ${lng}` };
-    } else {
-      // fallback: pretty-print the whole object
-      location = { address: pretty(a.location, 120) };
-    }
-
-    // description: prefer sosReason.reason or sosReason fields
-    let description = '';
-    if (a.sosReason) {
-      if (typeof a.sosReason === 'string') description = a.sosReason;
-      else if (a.sosReason.reason) description = String(a.sosReason.reason);
-      else description = pretty(a.sosReason, 200);
-    } else if (a.description) {
-      description = typeof a.description === 'string' ? a.description : pretty(a.description, 200);
-    }
-
-    // severity: derive from sosReason.reason or explicit severity field
-    const rawReason = (a.sosReason && (a.sosReason.reason || a.sosReason.type)) || a.emergencyType || a.severity || '';
-    const severity = mapEmergencyToSeverity(String(rawReason));
-
-    const status = a.status || 'unknown';
-    const timestamp = a.timestamp || a.createdAt || new Date().toISOString();
-
-    return {
-      id,
-      touristName,
-      severity,
-      location,
-      description,
-      status,
-      timestamp
-    };
-  };
-
-  // build list to render: normalize backend alerts when available, otherwise normalize mocks
-  const displayAlerts: DisplayAlert[] = alerts ?? mockSOSAlerts.map(a => normalizeRawAlert(a));
-  const recentAlerts = displayAlerts.slice(0, 3);
-  const recentTourists = mockTourists.slice(0, 4);
-
-  // fetch initial alerts and subscribe for updates
-  React.useEffect(() => {
-    let subId: string | null = null;
-    let mounted = true;
-
-    (async () => {
-      try {
-        const initial = await fetchAlerts();
-        const normalized = initial.map((a: ApiAlert): DisplayAlert => normalizeRawAlert(a));
-        if (mounted) setAlerts(normalized);
-      } catch (e) {
-        // keep mock alerts on error
-        // eslint-disable-next-line no-console
-        console.error('Failed to fetch initial alerts', e);
-      }
-    })();
-
-    // subscribe for updates
-    try {
-      subId = subscribeToAlerts((newAlerts: ApiAlert[]) => {
-        const normalized = newAlerts.map((a: ApiAlert): DisplayAlert => normalizeRawAlert(a));
-        if (mounted) setAlerts(normalized);
-      });
-    } catch (e) {
-      // ignore subscription errors
-      // eslint-disable-next-line no-console
-      console.error('Failed to subscribe to alerts', e);
-    }
-
-    return () => {
-      mounted = false;
-      if (subId) unsubscribeAlerts(subId);
-    };
-  }, []);
 
   const short = (s?: string) => {
     if (!s) return '';
-    if (s.length > 120) return s.slice(0, 117) + '...';
+    if (s.length > 50) return s.slice(0, 47) + '...';
     return s;
   };
 
@@ -163,39 +51,52 @@ const Dashboard: React.FC = () => {
     title, 
     value, 
     change, 
-    changeType, 
+    positiveTrend, // if true, 'up' is green. if false, 'up' is red (like for alerts)
     color 
   }: {
     icon: any;
     title: string;
     value: string | number;
     change?: string;
-    changeType?: 'up' | 'down';
+    positiveTrend?: boolean; // Does an increase mean something good?
     color: string;
-  }) => (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-medium text-gray-600">{title}</p>
-          <p className="text-3xl font-bold text-gray-900 mt-2">{value}</p>
-          {change && (
-            <p className={`text-sm mt-2 flex items-center ${
-              changeType === 'up' ? 'text-green-600' : 'text-red-600'
-            }`}>
-              <TrendingUp className={`h-4 w-4 mr-1 ${changeType === 'down' ? 'rotate-180' : ''}`} />
-              {change}
-            </p>
-          )}
-        </div>
-        <div className={`p-3 rounded-full ${color}`}>
-          <Icon className="h-8 w-8 text-white" />
+  }) => {
+    // Parse change direction
+    const isUp = change?.includes('+');
+    const isDown = change?.includes('-');
+    
+    // Determine color based on trend desirability
+    // If positiveTrend is true: Up=Green, Down=Red
+    // If positiveTrend is false (e.g. alerts): Up=Red, Down=Green
+    
+    let trendColor = 'text-gray-600';
+    if (isUp) trendColor = positiveTrend ? 'text-green-600' : 'text-red-600';
+    if (isDown) trendColor = positiveTrend ? 'text-red-600' : 'text-green-600';
+
+    return (
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-gray-600">{title}</p>
+            <p className="text-3xl font-bold text-gray-900 mt-2">{value}</p>
+            {change && (
+              <p className={`text-sm mt-2 flex items-center ${trendColor}`}>
+                <TrendingUp className={`h-4 w-4 mr-1 ${isDown ? 'rotate-180' : ''}`} />
+                {change}
+              </p>
+            )}
+          </div>
+          <div className={`p-3 rounded-full ${color}`}>
+            <Icon className="h-8 w-8 text-white" />
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const getSeverityColor = (severity: string) => {
-    switch (severity) {
+    const s = severity?.toLowerCase() || '';
+    switch (s) {
       case 'critical': return 'bg-red-100 text-red-800';
       case 'high': return 'bg-red-50 text-red-700';
       case 'medium': return 'bg-yellow-50 text-yellow-700';
@@ -205,15 +106,34 @@ const Dashboard: React.FC = () => {
   };
 
   const getStatusColor = (status: string) => {
-    switch (status) {
+    const s = status?.toLowerCase() || '';
+    switch (s) {
       case 'new': return 'bg-red-100 text-red-800';
       case 'assigned': return 'bg-blue-100 text-blue-800';
-      case 'in_progress': return 'bg-yellow-100 text-yellow-800';
-      case 'active': return 'bg-green-100 text-green-800';
+      case 'in_progress':
+      case 'active': return 'bg-yellow-100 text-yellow-800';
+      case 'resolved':
+      case 'closed': return 'bg-green-100 text-green-800';
       case 'expired': return 'bg-gray-100 text-gray-800';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  if (!stats) {
+    return (
+      <div className="p-8 text-center text-red-600">
+        Failed to load dashboard data. Please try refreshing.
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -234,36 +154,36 @@ const Dashboard: React.FC = () => {
         <StatCard
           icon={Users}
           title="Active Tourists"
-          value={metrics.activeTourists.toLocaleString()}
-          change="+12% from yesterday"
-          changeType="up"
+          value={stats.activeTourists.count.toLocaleString()}
+          change={stats.activeTourists.change}
+          positiveTrend={true}
           color="bg-blue-500"
         />
         <StatCard
           icon={AlertTriangle}
           title="SOS Alerts Today"
-          value={displayAlerts.length}
-          change="-3 from yesterday"
-          changeType="down"
+          value={stats.sosAlertsToday.count}
+          change={stats.sosAlertsToday.change}
+          positiveTrend={false} // increase is bad
           color="bg-red-500"
         />
         <StatCard
           icon={MapPin}
           title="High-Risk Zones"
-          value={highRiskZoneCount}
+          value={stats.highRiskZones.count}
+          positiveTrend={false}
           color="bg-orange-500"
         />
         <StatCard
           icon={Shield}
           title="Resolved Cases (This Month)"
-          value={metrics.resolvedCases}
-          change="+25% from last month"
-          changeType="up"
+          value={stats.resolvedCases.count}
+          change={stats.resolvedCases.change}
+          positiveTrend={true}
           color="bg-emerald-500"
         />
       </div>
       
-
       {/* Recent Activity */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
         {/* Recent SOS Alerts */}
@@ -272,70 +192,85 @@ const Dashboard: React.FC = () => {
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold text-gray-900">Recent SOS Alerts</h2>
               <span className="bg-red-100 text-red-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
-                {recentAlerts.length} Active
+                {stats.recentAlerts.length} Active (Recent)
               </span>
             </div>
           </div>
           <div className="p-6">
             <div className="space-y-4">
-              {recentAlerts.map((alert) => (
-                <div key={alert.id} className="flex items-start space-x-4 p-4 bg-gray-50 rounded-lg">
-                  <div className="flex-shrink-0">
-                    <AlertTriangle className="h-5 w-5 text-red-600" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-1">
-                      <p className="font-medium text-gray-900 truncate">{alert.touristName}</p>
-                      <span className={`text-xs font-medium px-2 py-1 rounded-full ${getSeverityColor(alert.severity || 'unknown')}`}> 
-                        {(alert.severity || 'UNKNOWN').toUpperCase()}
-                      </span>
+              {stats.recentAlerts.length === 0 ? (
+                <p className="text-gray-500 text-center">No active alerts</p>
+              ) : (
+                stats.recentAlerts.map((alert) => (
+                  <div key={alert.id} className="flex items-start space-x-4 p-4 bg-gray-50 rounded-lg">
+                    <div className="flex-shrink-0">
+                      <AlertTriangle className="h-5 w-5 text-red-600" />
                     </div>
-                    <p className="text-sm text-gray-600 mb-2">{typeof alert.location === 'string' ? alert.location : (alert.location?.address || '')}</p>
-                    <p className="text-xs text-gray-500 mb-2">{short(alert.description)}</p>
-                    <div className="flex items-center justify-between">
-                      <span className={`text-xs font-medium px-2 py-1 rounded-full ${getStatusColor(alert.status || 'unknown')}`}>
-                        {(alert.status || 'unknown').replace('_', ' ').toUpperCase()
-                      }</span>
-                      <span className="text-xs text-gray-500">
-                        {new Date(alert.timestamp || Date.now()).toLocaleTimeString()}
-                      </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="font-medium text-gray-900 truncate mr-2">
+                          {alert.touristName || 'Unknown Name'}
+                          <span className="text-sm text-gray-500 font-normal ml-2">
+                            {alert.touristId ? `(ID: ${alert.touristId})` : ''}
+                          </span>
+                        </p>
+                        <span className={`text-xs font-medium px-2 py-1 rounded-full ${getSeverityColor(alert.priority)} shrink-0`}> 
+                          {alert.priority.toUpperCase()}
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-600 mb-2">{alert.location}</p>
+                      <p className="text-xs text-gray-500 mb-2">{alert.reason}</p>
+                      <div className="flex items-center justify-between">
+                        <span className={`text-xs font-medium px-2 py-1 rounded-full ${getStatusColor(alert.status)}`}>
+                          {alert.status.replace('_', ' ').toUpperCase()}
+                        </span>
+                        <span className="text-xs text-gray-500">
+                          {new Date(alert.timestamp).toLocaleTimeString()}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
         </div>
 
-        {/* Recent Tourist Activities */}
+        {/* Recent Tourist Overview */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200">
           <div className="p-6 border-b border-gray-200">
             <h2 className="text-xl font-semibold text-gray-900">Tourist Status Overview</h2>
           </div>
           <div className="p-6">
             <div className="space-y-4">
-              {recentTourists.map((tourist) => (
-                <div key={tourist.id} className="flex items-center space-x-4 p-4 bg-gray-50 rounded-lg">
-                  <div className="flex-shrink-0 w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                    <Users className="h-5 w-5 text-blue-600" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-1">
-                      <p className="font-medium text-gray-900 truncate">{tourist.name}</p>
-                      <span className={`text-xs font-medium px-2 py-1 rounded-full ${getStatusColor(tourist.status)}`}>
-                        {tourist.status.toUpperCase()}
-                      </span>
+              {stats.touristOverview.length === 0 ? (
+                <p className="text-gray-500 text-center">No recent tourists found</p>
+              ) : (
+                stats.touristOverview.map((tourist) => (
+                  <div key={tourist.id} className="flex items-center space-x-4 p-4 bg-gray-50 rounded-lg">
+                    <div className="flex-shrink-0 w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                      <Users className="h-5 w-5 text-blue-600" />
                     </div>
-                    <p className="text-sm text-gray-600 mb-1">{tourist.country} • ID: {tourist.id}</p>
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs text-gray-500">Safety Score: {tourist.safetyScore}/100</p>
-                      <p className="text-xs text-gray-500">
-                        Last seen: {tourist.lastKnownLocation.address}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="font-medium text-gray-900 truncate">{tourist.name}</p>
+                        <span className={`text-xs font-medium px-2 py-1 rounded-full ${getStatusColor(tourist.status)}`}>
+                          {tourist.status.toUpperCase()}
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-600 mb-1">
+                         ID: {tourist.id}
                       </p>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-gray-500">Safety Score: {tourist.safetyScore}/100</p>
+                        <p className="text-xs text-gray-500 truncate max-w-[150px]" title={tourist.regTxHash}>
+                          Block: {short(tourist.regTxHash) || 'Pending'}
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
         </div>

@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { MapPin, Users, AlertTriangle, Eye, Navigation, Phone } from 'lucide-react';
+import { MapPin, Users, AlertTriangle, Eye, Navigation, Phone, ShieldAlert } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, useMap, Circle } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { mockTourists, mockSOSAlerts } from '../utils/mockData';
-import { getZones, Zone as ApiZone } from '../api/geofence';
+import { fetchMapOverview, MapOverviewResponse, MapTourist, MapZone, MapAlert, MapIncident, MapRiskGrid } from '../api/map';
 
 // @ts-ignore - leaflet.heat doesn't have bundled types
 import 'leaflet.heat';
@@ -17,20 +16,58 @@ L.Icon.Default.mergeOptions({
   shadowUrl: '/node_modules/leaflet/dist/images/marker-shadow.png'
 });
 
-// Simple Heatmap layer wrapper for react-leaflet using leaflet.heat
-type HeatProps = { data: typeof mockTourists };
+// Custom Icons
+const alertIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41]
+});
 
-function HeatmapLayer({ data }: HeatProps) {
+const touristActiveIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41]
+});
+
+const touristExpiredIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-grey.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41]
+});
+
+const incidentIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-orange.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41]
+});
+
+
+// Simple Heatmap layer wrapper
+type HeatProps = { points: MapRiskGrid[] };
+
+function HeatmapLayer({ points }: HeatProps) {
   const map = useMap();
   // Create points array: [lat, lng, intensity]
-  const points: Array<[number, number, number]> = data.map(t => [t.lastKnownLocation.lat, t.lastKnownLocation.lng, 0.8]);
+  const heatPoints: Array<[number, number, number]> = points.map(p => [p.location.lat, p.location.lng, p.intensity]);
 
   useEffect(() => {
-    if (!map) return;
+    if (!map || heatPoints.length === 0) return;
     // @ts-ignore
-    const heat = (L as any).heatLayer(points, { radius: 25, blur: 15, maxZoom: 12 }).addTo(map);
+    const heat = (L as any).heatLayer(heatPoints, { radius: 35, blur: 20, maxZoom: 12 }).addTo(map);
     return () => { map.removeLayer(heat); };
-  }, [map, data]);
+  }, [map, points]);
 
   return null;
 }
@@ -46,41 +83,40 @@ function BoundSetter() {
 }
 
 const TouristMap: React.FC = () => {
-  const [selectedTourist, setSelectedTourist] = useState<string | null>(null);
-  const [selectedZone, setSelectedZone] = useState<string | null>(null);
+  const [data, setData] = useState<MapOverviewResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [selectedEntity, setSelectedEntity] = useState<{id: string, type: 'tourist' | 'zone' | 'alert' | 'incident'} | null>(null);
 
-  const [zones, setZones] = useState<ApiZone[]>([]);
-
-  // Fetch geofence zones from backend
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        const data = await getZones();
-        if (mounted) setZones(data);
+        const result = await fetchMapOverview();
+        if (mounted) setData(result);
       } catch (e) {
-        // eslint-disable-next-line no-console
-        console.error('Failed to load geofence zones', e);
+        console.error('Failed to load map overview', e);
+      } finally {
+        if (mounted) setLoading(false);
       }
     })();
     return () => { mounted = false; };
   }, []);
 
   const getRiskColor = (risk: string) => {
-    switch (risk) {
-      case 'high': return 'bg-red-500 border-red-600';
+    switch (risk?.toLowerCase()) {
+      case 'high': case 'very high': return 'bg-red-500 border-red-600';
       case 'medium': return 'bg-yellow-500 border-yellow-600';
       case 'low': return 'bg-green-500 border-green-600';
       default: return 'bg-gray-500 border-gray-600';
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'active': return 'bg-green-500 border-green-600';
-      case 'expired': return 'bg-red-500 border-red-600';
-      case 'revoked': return 'bg-gray-500 border-gray-600';
-      default: return 'bg-blue-500 border-blue-600';
+  const getZoneColor = (risk: string) => {
+    switch (risk?.toLowerCase()) {
+        case 'high': case 'very high': return '#ef4444';
+        case 'medium': return '#f59e0b';
+        case 'low': return '#10b981';
+        default: return '#6b7280';
     }
   };
 
@@ -93,9 +129,11 @@ const TouristMap: React.FC = () => {
           <p className="text-gray-600 mt-2">Real-time tourist distribution and risk zone monitoring</p>
         </div>
         <div className="flex items-center space-x-4 mt-4 sm:mt-0">
-          <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors">
+          <button 
+             onClick={() => window.location.reload()}
+             className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors">
             <Navigation className="h-4 w-4" />
-            <span>Live Tracking</span>
+            <span>Refresh Data</span>
           </button>
         </div>
       </div>
@@ -126,7 +164,13 @@ const TouristMap: React.FC = () => {
             </div>
             
             {/* Real Map using Leaflet */}
-            <div className="relative h-96 p-0">
+            <div className="relative h-96 p-0 bg-gray-100">
+              {loading && (
+                  <div className="absolute inset-0 flex items-center justify-center z-[1000] bg-white bg-opacity-70">
+                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                  </div>
+              )}
+              {data && (
               <MapContainer
                 center={[22.5937, 78.9629]}
                 zoom={5}
@@ -142,141 +186,166 @@ const TouristMap: React.FC = () => {
                 />
 
                 {/* Tourist markers */}
-                {mockTourists.map((t) => (
+                {data.mapData.tourists.map((t) => (
                   <Marker
                     key={t.id}
-                    position={[t.lastKnownLocation.lat, t.lastKnownLocation.lng]}
-                    eventHandlers={{ click: () => setSelectedTourist(t.id) }}
+                    position={[t.location.lat, t.location.lng]}
+                    icon={t.status === 'active' ? touristActiveIcon : touristExpiredIcon}
+                    eventHandlers={{ click: () => setSelectedEntity({ id: t.id, type: 'tourist' }) }}
                   >
-                    <Popup>
-                      <div className="text-sm">
-                        <strong>{t.name}</strong>
-                        <div>{t.lastKnownLocation.address}</div>
-                        <div>Safety: {t.safetyScore}</div>
-                      </div>
-                    </Popup>
                   </Marker>
                 ))}
 
                 {/* SOS markers */}
-                {mockSOSAlerts.map((a) => (
+                {data.mapData.activeAlerts.map((a) => (
                   <Marker
                     key={a.id}
                     position={[a.location.lat, a.location.lng]}
-                    eventHandlers={{ click: () => console.log('SOS clicked', a.id) }}
+                    icon={alertIcon}
+                    zIndexOffset={100}
+                    eventHandlers={{ click: () => setSelectedEntity({ id: a.id, type: 'alert' }) }}
                   >
-                    <Popup>
-                      <div className="text-sm">
-                        <strong>{a.touristName}</strong>
-                        <div>{a.location.address}</div>
-                        <div>Type: {a.emergencyType}</div>
-                      </div>
-                    </Popup>
                   </Marker>
                 ))}
 
-                {/* Risk zone circles (from backend) */}
-                {zones.map((zone) => {
-                  const lat = zone.coords ? zone.coords[0] : undefined;
-                  const lng = zone.coords ? zone.coords[1] : undefined;
-                  const risk = (zone.riskLevel || '').toLowerCase();
-                  if (typeof lat !== 'number' || typeof lng !== 'number') return null;
+                 {/* Incident markers */}
+                 {data.mapData.incidents.map((i) => (
+                  <Marker
+                    key={i.id}
+                    position={[i.location.lat, i.location.lng]}
+                    icon={incidentIcon}
+                    eventHandlers={{ click: () => setSelectedEntity({ id: i.id, type: 'incident' }) }}
+                  >
+                  </Marker>
+                ))}
+
+                {/* Risk zone circles */}
+                {data.mapData.zones.map((zone) => {
                   return (
                     <Circle
                       key={zone.id}
-                      center={[lat, lng]}
-                      radius={(zone.radiusKm || 1) * 1000}
-                      pathOptions={{ color: risk === 'very high' || risk === 'high' ? '#ef4444' : risk === 'medium' ? '#f59e0b' : '#10b981', opacity: 0.35 }}
-                      eventHandlers={{ click: () => setSelectedZone(zone.id) }}
+                      center={[zone.coordinates[0], zone.coordinates[1]]}
+                      radius={zone.radius} // meters
+                      pathOptions={{ color: getZoneColor(zone.riskLevel), opacity: 0.35, fillOpacity: 0.2 }}
+                      eventHandlers={{ click: () => setSelectedEntity({ id: zone.id, type: 'zone' }) }}
                     />
                   );
                 })}
 
-                <HeatmapLayer data={mockTourists} />
+                <HeatmapLayer points={data.mapData.riskGrids} />
               </MapContainer>
+              )}
             </div>
           </div>
         </div>
 
         {/* Side Panel */}
         <div className="space-y-6">
-          {/* Tourist Details Panel */}
-          {selectedTourist && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-              <div className="p-4 bg-blue-50 border-b border-gray-200">
-                <h3 className="font-semibold text-gray-900">Tourist Details</h3>
-              </div>
-              <div className="p-4">
-                {(() => {
-                  const tourist = mockTourists.find(t => t.id === selectedTourist);
-                  return tourist ? (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">{tourist.name}</span>
-                        <span className={`text-xs font-medium px-2 py-1 rounded-full ${getStatusColor(tourist.status).replace('border-', 'text-').replace('bg-', 'bg-')}`}>
-                          {tourist.status.toUpperCase()}
-                        </span>
-                      </div>
-                      <div className="text-sm text-gray-600 space-y-1">
-                        <p><strong>ID:</strong> {tourist.id}</p>
-                        <p><strong>Country:</strong> {tourist.country}</p>
-                        <p><strong>Safety Score:</strong> {tourist.safetyScore}/100</p>
-                        <p><strong>Last Location:</strong> {tourist.lastKnownLocation.address}</p>
-                        <p><strong>Timestamp:</strong> {new Date(tourist.lastKnownLocation.timestamp).toLocaleString()}</p>
-                      </div>
-                      <div className="flex space-x-2 mt-4">
-                        <button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm flex items-center justify-center space-x-1 transition-colors">
-                          <Phone className="h-4 w-4" />
-                          <span>Contact</span>
-                        </button>
-                        <button className="flex-1 bg-gray-600 hover:bg-gray-700 text-white px-3 py-2 rounded-lg text-sm flex items-center justify-center space-x-1 transition-colors">
-                          <Eye className="h-4 w-4" />
-                          <span>Track</span>
-                        </button>
-                      </div>
-                    </div>
-                  ) : null;
-                })()}
-              </div>
-            </div>
-          )}
+          {/* Details Panel */}
+          {selectedEntity && data && (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 animate-in slide-in-from-right duration-200">
+               {selectedEntity.type === 'tourist' && (() => {
+                  const tourist = data.mapData.tourists.find(t => t.id === selectedEntity.id);
+                  if(!tourist) return null;
+                  return (
+                    <>
+                        <div className="p-4 bg-blue-50 border-b border-gray-200">
+                            <h3 className="font-semibold text-gray-900">Tourist Details</h3>
+                        </div>
+                        <div className="p-4 space-y-3">
+                            <div className="flex items-center justify-between">
+                                <span className="font-medium">{tourist.name}</span>
+                                <span className={`text-xs font-medium px-2 py-1 rounded-full ${tourist.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                    {tourist.status.toUpperCase()}
+                                </span>
+                            </div>
+                            <div className="text-sm text-gray-600 space-y-1">
+                                <p><strong>ID:</strong> {tourist.id}</p>
+                                <p><strong>Safety Score:</strong> {tourist.safetyScore}/100</p>
+                                <p><strong>Coordinates:</strong> {tourist.location.lat.toFixed(4)}, {tourist.location.lng.toFixed(4)}</p>
+                            </div>
+                            <button className="w-full bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm transition-colors mt-2">
+                                View Profile
+                            </button>
+                        </div>
+                    </>
+                  );
+               })()}
 
-          {/* Zone Details Panel */}
-          {selectedZone && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-              <div className="p-4 bg-red-50 border-b border-gray-200">
-                <h3 className="font-semibold text-gray-900">Risk Zone Details</h3>
-              </div>
-              <div className="p-4">
-                {(() => {
-                  const zone = zones.find(z => z.id === selectedZone);
-                  return zone ? (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">{zone.name}</span>
-                        {(() => {
-                          const risk = (zone.riskLevel || 'unknown').toLowerCase();
-                          return (
-                            <span className={`text-xs font-medium px-2 py-1 rounded-full ${getRiskColor(risk).replace('border-', 'text-').replace('bg-', 'bg-')}`}>
-                              {String(zone.riskLevel || 'UNKNOWN').toUpperCase()} RISK
-                            </span>
-                          );
-                        })()}
-                      </div>
-                      <div className="text-sm text-gray-600 space-y-1">
-                        <p><strong>Zone ID:</strong> {zone.id}</p>
-                        <p><strong>Radius:</strong> {zone.radiusKm ?? 'N/A'} km</p>
-                        <p><strong>Active Tourists:</strong> {Math.floor(Math.random() * 20) + 5}</p>
-                        <p><strong>Recent Incidents:</strong> {Math.floor(Math.random() * 5) + 1}</p>
-                        <p><strong>Response Units:</strong> {Math.floor(Math.random() * 3) + 1} available</p>
-                      </div>
-                      <button className="w-full bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm transition-colors">
-                        Deploy Additional Units
-                      </button>
-                    </div>
-                  ) : null;
-                })()}
-              </div>
+               {selectedEntity.type === 'zone' && (() => {
+                  const zone = data.mapData.zones.find(z => z.id === selectedEntity.id);
+                  if(!zone) return null;
+                  return (
+                    <>
+                         <div className="p-4 bg-red-50 border-b border-gray-200">
+                            <h3 className="font-semibold text-gray-900">Risk Zone Details</h3>
+                        </div>
+                        <div className="p-4 space-y-3">
+                            <div className="flex items-center justify-between">
+                                <span className="font-medium">{zone.name}</span>
+                                <span className={`text-xs font-medium px-2 py-1 rounded-full ${getRiskColor(zone.riskLevel).replace('border-', 'text-').replace('bg-', 'bg-').split(' ')[0]} bg-opacity-20`}>
+                                    {zone.riskLevel.toUpperCase()}
+                                </span>
+                            </div>
+                            <div className="text-sm text-gray-600 space-y-1">
+                                <p><strong>Type:</strong> {zone.shape}</p>
+                                <p><strong>Radius:</strong> {(zone.radius / 1000).toFixed(1)} km</p>
+                            </div>
+                        </div>
+                    </>
+                  );
+               })()}
+
+               {selectedEntity.type === 'alert' && (() => {
+                   const alert = data.mapData.activeAlerts.find(a => a.id === selectedEntity.id);
+                   if(!alert) return null;
+                   return (
+                       <>
+                         <div className="p-4 bg-red-100 border-b border-red-200">
+                            <h3 className="font-semibold text-red-900 flex items-center">
+                                <AlertTriangle className="w-4 h-4 mr-2" /> SOS Alert
+                            </h3>
+                        </div>
+                        <div className="p-4 space-y-3">
+                             <div className="text-sm text-gray-600 space-y-1">
+                                <p><strong>Alert ID:</strong> {alert.id}</p>
+                                <p><strong>Status:</strong> <span className="capitalize">{alert.status}</span></p>
+                                <p><strong>Priority:</strong> <span className={`font-semibold ${alert.priority === 'high' ? 'text-red-600' : 'text-orange-600'}`}>{alert.priority.toUpperCase()}</span></p>
+                                <p><strong>Location:</strong> {alert.locationName || "Unknown Location"}</p>
+                                <p><strong>Coordinates:</strong> {alert.location.lat.toFixed(4)}, {alert.location.lng.toFixed(4)}</p>
+                            </div>
+                            <button className="w-full bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm transition-colors mt-2">
+                                Dispatch Response
+                            </button>
+                        </div>
+                       </>
+                   )
+               })()}
+
+               {selectedEntity.type === 'incident' && (() => {
+                   const incident = data.mapData.incidents.find(i => i.id === selectedEntity.id);
+                   if(!incident) return null;
+                   return (
+                       <>
+                         <div className="p-4 bg-orange-50 border-b border-orange-200">
+                            <h3 className="font-semibold text-orange-900 flex items-center">
+                                <ShieldAlert className="w-4 h-4 mr-2" /> Incident Report
+                            </h3>
+                        </div>
+                        <div className="p-4 space-y-3">
+                             <div className="text-sm text-gray-600 space-y-1">
+                                <p><strong>Title:</strong> {incident.title}</p>
+                                <p><strong>Category:</strong> <span className="capitalize">{incident.category}</span></p>
+                                <p><strong>Incident ID:</strong> {incident.id}</p>
+                                <p><strong>Coordinates:</strong> {incident.location.lat.toFixed(4)}, {incident.location.lng.toFixed(4)}</p>
+                            </div>
+                            <button className="w-full bg-orange-600 hover:bg-orange-700 text-white px-3 py-2 rounded-lg text-sm transition-colors mt-2">
+                                View Full Report
+                            </button>
+                        </div>
+                       </>
+                   )
+               })()}
             </div>
           )}
 
@@ -285,24 +354,28 @@ const TouristMap: React.FC = () => {
             <div className="p-4 bg-gray-50 border-b border-gray-200">
               <h3 className="font-semibold text-gray-900">Live Statistics</h3>
             </div>
+            {loading ? (
+                <div className="p-4 text-center text-gray-500">Loading stats...</div>
+            ) : data ? (
             <div className="p-4 space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-sm text-gray-600">Total Tourists</span>
-                <span className="font-semibold text-green-600">{mockTourists.length}</span>
+                <span className="font-semibold text-green-600">{data.stats.totalTourists}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-gray-600">Active Alerts</span>
-                <span className="font-semibold text-red-600">{mockSOSAlerts.filter(a => a.status === 'new').length}</span>
+                <span className="font-semibold text-red-600">{data.stats.activeAlerts}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-gray-600">High Risk Zones</span>
-                <span className="font-semibold text-orange-600">{zones.filter(z => (z.riskLevel || '').toLowerCase().includes('high')).length}</span>
+                <span className="font-semibold text-orange-600">{data.stats.highRiskZones}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-gray-600">Response Units</span>
-                <span className="font-semibold text-blue-600">12 Available</span>
+                <span className="font-semibold text-blue-600">{data.stats.responseUnits} Available</span>
               </div>
             </div>
+            ) : null}
           </div>
 
           {/* Legend */}
@@ -312,26 +385,24 @@ const TouristMap: React.FC = () => {
             </div>
             <div className="p-4 space-y-2 text-sm">
               <div className="flex items-center space-x-2">
-                <div className="w-4 h-4 bg-green-500 rounded-full border border-green-600"></div>
+                 <img src="https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png" className="w-4 h-6" />
                 <span>Active Tourist</span>
               </div>
               <div className="flex items-center space-x-2">
-                <div className="w-4 h-4 bg-red-500 rounded-full border border-red-600"></div>
+                 <img src="https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-grey.png" className="w-4 h-6" />
                 <span>Expired/Inactive Tourist</span>
               </div>
               <div className="flex items-center space-x-2">
-                <div className="w-4 h-4 bg-red-600 rounded-full flex items-center justify-center">
-                  <AlertTriangle className="w-2 h-2 text-white" />
-                </div>
+                <img src="https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png" className="w-4 h-6" />
                 <span>Active SOS Alert</span>
+              </div>
+               <div className="flex items-center space-x-2">
+                <img src="https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-orange.png" className="w-4 h-6" />
+                <span>Incident Report</span>
               </div>
               <div className="flex items-center space-x-2">
                 <div className="w-4 h-4 bg-red-500 rounded-full opacity-30"></div>
                 <span>High Risk Zone</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <div className="w-4 h-4 bg-yellow-500 rounded-full opacity-30"></div>
-                <span>Medium Risk Zone</span>
               </div>
             </div>
           </div>

@@ -37,11 +37,14 @@ export interface SOSAlert {
   };
   emergencyType: 'medical' | 'accident' | 'crime' | 'lost' | 'natural_disaster';
   severity: 'low' | 'medium' | 'high' | 'critical';
+  safetyScore?: number;
   timestamp: string;
   status: 'new' | 'assigned' | 'in_progress' | 'resolved';
   assignedUnit?: string;
   contactInfo: string;
   description: string;
+  emergencyContactName?: string;
+  isLoggedOnChain?: boolean;
 }
 
 export interface DashboardMetrics {

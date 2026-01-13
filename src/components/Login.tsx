@@ -73,6 +73,9 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
       // Since authentication is handled by cookies, we just need to check
       // if login was successful and we have user data
       if (res.user) {
+        if (res.token) {
+          localStorage.setItem('token', res.token);
+        }
         onLogin(res.user);
         showToast('Login successful', 'success');
         navigate('/dashboard');
