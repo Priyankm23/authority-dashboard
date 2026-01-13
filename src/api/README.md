@@ -44,4 +44,4 @@ useEffect(() => {
 Notes:
 
 - The SSE endpoint path used is `/api/authority/alerts/stream`. If your backend uses a different path for streaming, update `alerts.ts` accordingly.
-- The client intentionally keeps implementation minimal and framework-agnostic
+- The client intentionally keeps implementation minimal and framework-agnostic.
