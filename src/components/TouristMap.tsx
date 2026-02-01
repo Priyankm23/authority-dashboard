@@ -10,7 +10,7 @@ import Map, {
 // Import MapRef as a type
 import type { MapRef } from 'react-map-gl/mapbox';
 import type { GeoJSONSource } from 'mapbox-gl';
-import { RefreshCw, AlertTriangle, Layers, X, ExternalLink, MapPin, Wifi, WifiOff } from 'lucide-react';
+import { RefreshCw, AlertTriangle, Layers, X, MapPin, Wifi, WifiOff } from 'lucide-react';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { fetchMapOverview, MapOverviewResponse } from '../api/map';
 import { onAuthorityEvent, offAuthorityEvent, getAuthoritySocket } from '../utils/socketClient';
@@ -265,7 +265,7 @@ const TouristMap: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 h-[700px]">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 h-[950px]">
         {/* Main Map Area */}
         <div className="xl:col-span-2 relative h-full rounded-xl shadow-lg border border-gray-200 overflow-hidden">
             <Map
@@ -506,10 +506,10 @@ const TouristMap: React.FC = () => {
         </div>
 
         {/* Side Panel - Details */}
-        <div className="space-y-6 overflow-y-auto h-full pr-2">
+        <div className="flex flex-col space-y-6 h-full">
           {/* Details Panel - Content same as before but driven by selectedEntity */}
           {selectedEntity ? (
-             <div className="bg-white rounded-xl shadow-sm border border-gray-200 animate-in slide-in-from-right duration-200 sticky top-0">
+             <div className="bg-white rounded-xl shadow-sm border border-gray-200 animate-in slide-in-from-right duration-200 flex-shrink-0">
                 <button 
                   onClick={() => setSelectedEntity(null)}
                   className="absolute top-2 right-2 p-1 hover:bg-gray-100 rounded-full text-gray-400 hover:text-gray-600"
@@ -628,18 +628,20 @@ const TouristMap: React.FC = () => {
                   )
                })()}
              </div>
-          ) : (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 text-center h-48 flex flex-col items-center justify-center">
-                <div className="w-12 h-12 bg-gray-50 rounded-full flex items-center justify-center mb-3">
-                    <MapPin className="w-6 h-6 text-gray-400" />
-                </div>
-                <h3 className="text-gray-900 font-medium mb-1">No Item Selected</h3>
-                <p className="text-sm text-gray-500 px-4">Click on a map marker to view detailed information and take action.</p>
-            </div>
-          )}
+           ) : (
+             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 text-center flex-shrink-0 flex flex-col items-center justify-center">
+                 <div className="w-12 h-12 bg-gray-50 rounded-full flex items-center justify-center mb-3">
+                     <MapPin className="w-6 h-6 text-gray-400" />
+                 </div>
+                 <h3 className="text-gray-900 font-medium mb-1">No Item Selected</h3>
+                 <p className="text-sm text-gray-500 px-4">Click on a map marker to view detailed information and take action.</p>
+             </div>
+           )}
 
-          {/* Stats Cards (Below Details) */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+           {/* Stats Cards and Map Layers - Scrollable Container */}
+           <div className="flex-1 overflow-y-auto space-y-6 pr-2">
+           {/* Stats Cards (Below Details) */}
+           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex-shrink-0">
              <div className="p-4 bg-gray-50 border-b border-gray-200">
                <h3 className="font-semibold text-gray-900">Live Statistics</h3>
              </div>
@@ -693,9 +695,10 @@ const TouristMap: React.FC = () => {
                     <span className="flex-1 font-medium">Inactive</span>
                     <div className="w-3 h-3 rounded-full bg-gray-400 shadow-sm"></div>
                 </label>
-             </div>
-          </div>
-        </div>
+              </div>
+           </div>
+           </div>
+         </div>
       </div>
     </div>
   );

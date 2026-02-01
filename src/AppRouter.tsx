@@ -6,10 +6,12 @@ import {
   Navigate,
   Outlet,
   useLocation,
+  Link,
 } from "react-router-dom";
 import Login from "./components/Login";
 import Signup from "./components/Signup";
-import Sidebar from "./components/Sidebar";
+import { SidebarProvider, SidebarInset } from "./components/ui/sidebar";
+import { DashboardSidebar } from "./components/sidebar-02/app-sidebar";
 import Dashboard from "./components/Dashboard";
 import TouristMap from "./components/TouristMap";
 import AlertsPanel from "./components/AlertsPanel";
@@ -17,6 +19,14 @@ import TouristManagement from "./components/TouristManagement";
 import FIRGenerator from "./components/FIRGenerator";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { User } from "./types";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "./components/ui/breadcrumb";
 
 interface AppRouterProps {
   user: User | null;
@@ -27,66 +37,79 @@ interface AppRouterProps {
 
 import GlobalAlertListener from "./components/GlobalAlertListener";
 
+// Page title mapping
+const pageTitles: Record<string, string> = {
+  dashboard: "Dashboard",
+  tourists: "Tourist Management",
+  alerts: "SOS Alerts",
+  heatmap: "Heatmap & Zones",
+  firs: "E-FIR Generator",
+  settings: "Settings",
+};
+
 // Layout used on protected pages: shows Sidebar and renders the nested route via Outlet
 const ProtectedLayout: React.FC<{ user: User; onLogout: () => void }> = ({
   user,
   onLogout,
 }) => {
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = React.useState(false);
   const location = useLocation();
   const path = location.pathname === "/" ? "/dashboard" : location.pathname;
-  const currentPage = path.replace(/^\//, "");
-
-  const toggleSidebar = () => setIsSidebarCollapsed(!isSidebarCollapsed);
+  const currentPage = path.replace(/^\//, "").split("/")[0]; // Get first segment
+  const isDashboard = currentPage === "dashboard";
+  const pageTitle = pageTitles[currentPage] || currentPage.charAt(0).toUpperCase() + currentPage.slice(1);
 
   return (
-    <>
+    <SidebarProvider>
       {/* Global Listener for SOS Sounds/Toasts */}
       <GlobalAlertListener />
 
-      <Sidebar
-        user={user}
-        onLogout={onLogout}
-        isCollapsed={isSidebarCollapsed}
-        toggleSidebar={toggleSidebar}
-      />
-      <div
-        className={`transition-all duration-300 ${
-          isSidebarCollapsed ? "ml-20" : "ml-64"
-        }`}
-      >
-        {/* Top Navigation Bar - simplified header that mirrors previous App header */}
-        <header className="bg-white shadow-sm border-b border-gray-200 px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-lg font-semibold text-gray-900 capitalize">
-                {currentPage === "dashboard"
-                  ? "Dashboard Overview"
-                  : currentPage}
-              </h1>
-              <p className="text-sm text-gray-600">
-                Welcome back, {user.name}
-              </p>
-            </div>
-            <div className="flex items-center space-x-4">
-              <div className="text-right">
-                <p className="text-sm font-medium text-gray-900">{user.name}</p>
-                <p className="text-xs text-gray-500">{user.email}</p>
+      <div className="relative flex h-screen w-full">
+        <DashboardSidebar
+          user={{ name: user.name, email: user.email, role: user.role, department: user.department }}
+          onLogout={onLogout}
+        />
+        <SidebarInset className="flex flex-col flex-1">
+          {/* Top Navigation Bar with Breadcrumbs */}
+          <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-background px-6">
+            {isDashboard ? (
+              // Dashboard: Simple welcome message
+              <div className="flex flex-1 items-center">
+                <div>
+                  <h1 className="text-lg font-semibold">Dashboard Overview</h1>
+                  <p className="text-sm text-muted-foreground">
+                    Welcome back, {user.name}
+                  </p>
+                </div>
               </div>
-              <div className="h-10 w-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-semibold">
-                {user.name.charAt(0).toUpperCase()}
+            ) : (
+              // Other pages: Show breadcrumb
+              <div className="flex flex-1 items-center">
+                <Breadcrumb>
+                  <BreadcrumbList>
+                    <BreadcrumbItem className="hidden md:block">
+                      <BreadcrumbLink asChild>
+                        <Link to="/dashboard">Dashboard</Link>
+                      </BreadcrumbLink>
+                    </BreadcrumbItem>
+                    <BreadcrumbSeparator className="hidden md:block" />
+                    <BreadcrumbItem>
+                      <BreadcrumbPage>{pageTitle}</BreadcrumbPage>
+                    </BreadcrumbItem>
+                  </BreadcrumbList>
+                </Breadcrumb>
               </div>
-            </div>
-          </div>
-        </header>
+            )}
+          </header>
 
-        <main className="p-6">
-          <Outlet />
-        </main>
+          <main className="p-6 flex-1 overflow-auto">
+            <Outlet />
+          </main>
+        </SidebarInset>
       </div>
-    </>
+    </SidebarProvider>
   );
 };
+
 
 const AppRouter: React.FC<AppRouterProps> = ({
   user,

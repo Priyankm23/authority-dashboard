@@ -1,8 +1,13 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useCallback } from 'react';
+import { toast } from 'sonner';
 
-type Toast = { id: number; message: string; type?: 'success' | 'error' | 'info' };
+type ToastType = 'success' | 'error' | 'info' | 'warning';
 
-const ToastContext = createContext<{ showToast: (message: string, type?: Toast['type']) => void } | undefined>(undefined);
+interface ToastContextValue {
+  showToast: (message: string, type?: ToastType) => void;
+}
+
+const ToastContext = createContext<ToastContextValue | undefined>(undefined);
 
 export const useToast = () => {
   const ctx = useContext(ToastContext);
@@ -11,23 +16,27 @@ export const useToast = () => {
 };
 
 const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [toasts, setToasts] = useState<Toast[]>([]);
-  const showToast = useCallback((message: string, type: Toast['type'] = 'info') => {
-    const id = Date.now();
-    setToasts((s) => [...s, { id, message, type }]);
-    setTimeout(() => setToasts((s) => s.filter(t => t.id !== id)), 4000);
+  const showToast = useCallback((message: string, type: ToastType = 'info') => {
+    switch (type) {
+      case 'success':
+        toast.success(message);
+        break;
+      case 'error':
+        toast.error(message);
+        break;
+      case 'warning':
+        toast.warning(message);
+        break;
+      case 'info':
+      default:
+        toast.info(message);
+        break;
+    }
   }, []);
 
   return (
     <ToastContext.Provider value={{ showToast }}>
       {children}
-      <div className="fixed bottom-6 right-6 space-y-3 z-50">
-        {toasts.map(t => (
-          <div key={t.id} className={`min-w-[220px] max-w-md px-4 py-2 rounded shadow-lg text-white ${t.type === 'success' ? 'bg-green-600' : t.type === 'error' ? 'bg-red-600' : 'bg-gray-800'}`}>
-            {t.message}
-          </div>
-        ))}
-      </div>
     </ToastContext.Provider>
   );
 };

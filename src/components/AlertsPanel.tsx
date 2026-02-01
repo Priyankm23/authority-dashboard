@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   AlertTriangle,
   Filter,
@@ -12,6 +12,10 @@ import { useSOSAlerts } from "../hooks/useSOSAlerts";
 import { AuthorityAlertCard } from "./AuthorityAlertCard";
 import { AlertDetailView } from "./AlertDetailView";
 import { formatTimeAgo, getSeverityColors, getSeverityFromScore } from "../utils/formatters";
+import { Card, CardContent } from "./ui/card";
+import { Button } from "./ui/button";
+import { Badge } from "./ui/badge";
+import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 
 // Helper: map backend alert (see apidocs.md) to frontend SOSAlert
 const mapBackendToSOS = (a: any): SOSAlert => {
@@ -40,7 +44,7 @@ const mapBackendToSOS = (a: any): SOSAlert => {
   if (safety <= 1) {
     safety = safety * 100;
   }
-  
+
   let severity: SOSAlert["severity"] = "medium";
   if (safety >= 80) severity = "low";
   else if (safety >= 50) severity = "medium";
@@ -106,9 +110,9 @@ const mapBackendToSOS = (a: any): SOSAlert => {
     touristId:
       String(a.touristId || tourist.id || tourist._id || a.id || a._id || ""),
     touristName:
-      a.touristName || tourist.name || tourist.fullName || 
+      a.touristName || tourist.name || tourist.fullName ||
       // Only fallback to other names if explicitly NOT emergency contact
-      (a.name !== emergencyContact?.name ? a.name : null) || 
+      (a.name !== emergencyContact?.name ? a.name : null) ||
       `Tourist ${a.touristId || tourist.id || "Unknown"}`,
     // New fields from backend - check top level then nested tourist object
     govId: a.govId || tourist.govId || tourist.govIdHash || null, // Handle both govId and legacy hash
@@ -146,12 +150,12 @@ const mapBackendToSOS = (a: any): SOSAlert => {
     // For now, let's just leave assignedTo as is, complex objects will just exist in the data
     assignedTo: Array.isArray(a.assignedTo) ? a.assignedTo : [],
     // If backend returns a number (seconds), formatted it, else pass through
-    responseTime: 
-      typeof a.responseTime === 'number' 
+    responseTime:
+      typeof a.responseTime === 'number'
         ? formatTimeAgo(new Date(Date.now() - a.responseTime * 1000)).replace("ago", "") // rough fallback or just leave as is?
-          // Better: recreate the HH:MM:SS format if it's seconds
-          // Actually, let's just allow it or simple format:
-          : a.responseTime,
+        // Better: recreate the HH:MM:SS format if it's seconds
+        // Actually, let's just allow it or simple format:
+        : a.responseTime,
     responseDate: a.responseDate,
     contactInfo:
       emergencyContact?.phone ||
@@ -181,23 +185,23 @@ const AlertsPanel: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { showToast } = useToast();
-  
+
   // Use the SOS alerts hook for real-time updates (latestAlert only)
   const { latestAlert } = useSOSAlerts();
-  
+
   // Track socket connection state
   const [isSocketConnected, setIsSocketConnected] = useState(false);
-  
+
   // Check socket connection status
   useEffect(() => {
     const checkConnection = () => {
       const sock = (window as any).getAuthoritySocket ? (window as any).getAuthoritySocket() : null;
       setIsSocketConnected(sock?.connected || false);
     };
-    
+
     checkConnection();
     const interval = setInterval(checkConnection, 3000);
-    
+
     return () => clearInterval(interval);
   }, []);
 
@@ -205,22 +209,22 @@ const AlertsPanel: React.FC = () => {
     try {
       const alert = alerts.find((a) => a.id === alertId);
       let responseTimeVal: string | number = 0;
-      
+
       if (alert) {
         const start = new Date(alert.timestamp).getTime();
         const now = Date.now();
         // Calculate difference in seconds
         const diff = Math.floor((now - start) / 1000);
-        
+
         // Format for display/logging if needed, but send NUMBER to backend
         // This avoids 500 errors if backend expects Number
-        responseTimeVal = diff; 
+        responseTimeVal = diff;
       }
 
       console.log("👮 Assigning unit to alert:", alertId, "Response Time (seconds):", responseTimeVal);
       const updatedRaw = await alertsApi.assignUnit(alertId, { responseTime: responseTimeVal });
       const updated = mapBackendToSOS(updatedRaw);
-      
+
       showToast("Unit assigned successfully", "success");
       setAlerts((prev) =>
         prev.map((a) => (a.id === alertId ? updated : a))
@@ -255,11 +259,11 @@ const AlertsPanel: React.FC = () => {
     filter === "all"
       ? alerts
       : alerts.filter((alert) => {
-          if (filter === "assigned") {
-            return alert.status === "assigned" || alert.status === "responding";
-          }
-          return alert.status === filter;
-        });
+        if (filter === "assigned") {
+          return alert.status === "assigned" || alert.status === "responding";
+        }
+        return alert.status === filter;
+      });
   const newAlertsCount = alerts.filter(
     (alert) => alert.status === "new",
   ).length;
@@ -273,7 +277,7 @@ const AlertsPanel: React.FC = () => {
       try {
         let data;
         let mapped;
-        
+
         if (filter === "assigned") {
           data = await alertsApi.fetchRespondingAlerts();
           mapped = (Array.isArray(data) ? data : []).map(mapBackendToSOS);
@@ -285,7 +289,7 @@ const AlertsPanel: React.FC = () => {
           // Strategy: Fetch all standard alerts + assigned details and merge.
           const standardData = await alertsApi.fetchAlerts();
           const standardMapped = (Array.isArray(standardData) ? standardData : []).map(mapBackendToSOS);
-          
+
           // Merge: use responding detail if available, else standard
           const merged = [...standardMapped];
           mapped.forEach(assignedAlert => {
@@ -316,26 +320,26 @@ const AlertsPanel: React.FC = () => {
       subId = alertsApi.subscribeToAlerts((payload: any[]) => {
         console.log("[AlertsPanel] ðŸ“¨ Received alert update via subscription");
         console.log("[AlertsPanel] Payload:", payload);
-        
+
         try {
           // Backend may send a single alert object or an array. Normalize to array.
           const incomingRaw = Array.isArray(payload) ? payload : [payload];
           const incomingMapped = incomingRaw.map(mapBackendToSOS);
-          
+
           console.log("[AlertsPanel] Mapped alerts:", incomingMapped.map(a => ({ id: a.id, name: a.touristName })));
 
           // If we received a single alert, merge it into existing list (update by id or prepend).
           if (incomingMapped.length === 1) {
             const inc = incomingMapped[0];
-            
+
             // Validate the alert has a proper ID to prevent duplicates
             if (!inc.id || inc.id === 'undefined') {
               console.error("[AlertsPanel] âŒ Alert missing valid ID, skipping:", inc);
               return;
             }
-            
+
             console.log(`[AlertsPanel] âœ… Processing alert ID:`, inc.id, "Tourist:", inc.touristName);
-            
+
             setAlerts((prev) => {
               // update existing alert if present
               const idx = prev.findIndex((a) => a.id === inc.id);
@@ -378,7 +382,7 @@ const AlertsPanel: React.FC = () => {
       if (subId) alertsApi.unsubscribe(subId);
     };
   }, [
-    filter, 
+    filter,
     // Re-run subscription only if filter changes? 
     // Actually alertsApi probably handles deduping, but for safety let's leave deps as is.
   ]);
@@ -396,7 +400,7 @@ const AlertsPanel: React.FC = () => {
   //     }
   //   }
   // }, [location.search, alerts]);
-  
+
   // Request notification permission on mount
   useEffect(() => {
     if ('Notification' in window && Notification.permission === 'default') {
@@ -420,11 +424,10 @@ const AlertsPanel: React.FC = () => {
         </div>
         <div className="flex items-center space-x-4 mt-4 sm:mt-0">
           {/* Socket Connection Status */}
-          <div className={`flex items-center space-x-2 px-3 py-1.5 rounded-full text-sm font-medium ${
-            isSocketConnected
-              ? "bg-green-100 text-green-800"
-              : "bg-red-100 text-red-800"
-          }`}>
+          <Badge variant={isSocketConnected ? "default" : "destructive"} className={`flex items-center space-x-2 px-3 py-1.5 ${isSocketConnected
+            ? "bg-green-100 text-green-800 hover:bg-green-100"
+            : "bg-red-100 text-red-800 hover:bg-red-100"
+            }`}>
             {isSocketConnected ? (
               <>
                 <Wifi className="h-4 w-4" />
@@ -436,73 +439,104 @@ const AlertsPanel: React.FC = () => {
                 <span>Disconnected</span>
               </>
             )}
-          </div>
-          
+          </Badge>
+
           {newAlertsCount > 0 && (
-            <div className="bg-red-100 text-red-800 px-3 py-1 rounded-full text-sm font-medium">
+            <Badge variant="destructive" className="bg-red-100 text-red-800 hover:bg-red-100 px-3 py-1.5 flex items-center justify-center h-8">
               {newAlertsCount} New Alert{newAlertsCount > 1 ? "s" : ""}
-            </div>
+            </Badge>
           )}
-          <button className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors">
+          <Button variant="destructive" className="flex items-center space-x-2">
             <AlertTriangle className="h-4 w-4" />
             <span>Create Alert</span>
-          </button>
+          </Button>
         </div>
       </div>
-      
+
+      {/* Emergency Response Statistics */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card className="text-center bg-red-50 border-red-200">
+          <CardContent className="p-4">
+            <p className="text-2xl font-bold text-red-600">
+              {alerts.filter((a) => a.status === "new").length}
+            </p>
+            <p className="text-sm text-red-700">New Alerts</p>
+          </CardContent>
+        </Card>
+        <Card className="text-center bg-blue-50 border-blue-200">
+          <CardContent className="p-4">
+            <p className="text-2xl font-bold text-blue-600">
+              {alerts.filter((a) => a.status === "assigned" || a.status === "responding").length}
+            </p>
+            <p className="text-sm text-blue-700">Assigned</p>
+          </CardContent>
+        </Card>
+        <Card className="text-center bg-yellow-50 border-yellow-200">
+          <CardContent className="p-4">
+            <p className="text-2xl font-bold text-yellow-600">
+              {alerts.filter((a) => a.status === "in_progress").length}
+            </p>
+            <p className="text-sm text-yellow-700">In Progress</p>
+          </CardContent>
+        </Card>
+        <Card className="text-center bg-green-50 border-green-200">
+          <CardContent className="p-4">
+            <p className="text-2xl font-bold text-green-600">
+              {alerts.filter((a) => a.status === "resolved").length}
+            </p>
+            <p className="text-sm text-green-700">Resolved</p>
+          </CardContent>
+        </Card>
+      </div>
+
       {/* Latest Alert Banner */}
       {latestAlert && (
-        <div className={`rounded-xl shadow-lg p-6 border-2 animate-pulse ${getSeverityColors(latestAlert.severity || getSeverityFromScore(latestAlert.safetyScore || 50)).bg} ${getSeverityColors(latestAlert.severity || getSeverityFromScore(latestAlert.safetyScore || 50)).border}`}>
-          <div className="flex items-start justify-between">
-            <div className={`flex-1 ${getSeverityColors(latestAlert.severity || getSeverityFromScore(latestAlert.safetyScore || 50)).text}`}>
-              <h2 className="text-2xl font-bold mb-2 flex items-center">
-                <AlertTriangle className="h-6 w-6 mr-2" />
-                NEW SOS ALERT
-              </h2>
-              <p className="text-lg mb-1">
-                <strong>Location:</strong> {latestAlert.location.locationName || 'Unknown'}
-              </p>
-              <p className="text-sm opacity-90">
-                Tourist ID: {latestAlert.touristId} | Time: {new Date(latestAlert.timestamp).toLocaleTimeString()}
-              </p>
+        <Card className={`border-2 animate-pulse ${getSeverityColors(latestAlert.severity || getSeverityFromScore(latestAlert.safetyScore || 50)).bg} ${getSeverityColors(latestAlert.severity || getSeverityFromScore(latestAlert.safetyScore || 50)).border}`}>
+          <CardContent className="p-6">
+            <div className="flex items-start justify-between">
+              <div className={`flex-1 ${getSeverityColors(latestAlert.severity || getSeverityFromScore(latestAlert.safetyScore || 50)).text}`}>
+                <h2 className="text-2xl font-bold mb-2 flex items-center">
+                  <AlertTriangle className="h-6 w-6 mr-2" />
+                  NEW SOS ALERT
+                </h2>
+                <p className="text-lg mb-1">
+                  <strong>Location:</strong> {latestAlert.location.locationName || 'Unknown'}
+                </p>
+                <p className="text-sm opacity-90">
+                  Tourist ID: {latestAlert.touristId} | Time: {new Date(latestAlert.timestamp).toLocaleTimeString()}
+                </p>
+              </div>
+              <Button
+                onClick={() => setSelectedAlert(latestAlert)}
+                variant="outline"
+                className="bg-white text-red-600 hover:bg-gray-100 font-bold shadow-md"
+              >
+                View Alert Details
+              </Button>
             </div>
-            <button
-              onClick={() => setSelectedAlert(latestAlert)}
-              className="bg-white text-red-600 px-6 py-3 rounded-lg font-bold hover:bg-gray-100 transition-colors shadow-md"
-            >
-              View Alert Details
-            </button>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
-      {/* Filter Tabs */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div className="flex items-center space-x-4">
-          <Filter className="h-5 w-5 text-gray-400" />
-          <div className="flex space-x-2">
-            {["new", "assigned", "in_progress"].map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setFilter(tab as any)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  filter === tab
-                    ? "bg-blue-100 text-blue-700"
-                    : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-                }`}
-              >
-                {tab
-                      .replace("_", " ")
-                      .replace(/\b\w/g, (l) => l.toUpperCase())}
-                {tab === "new" && newAlertsCount > 0 && (
-                  <span className="ml-2 bg-red-500 text-white rounded-full px-2 py-1 text-xs">
+      {/* Filter Tabs - Moved to Right */}
+      <div className="flex justify-end">
+        <Tabs value={filter} onValueChange={(value) => setFilter(value as any)}>
+          <div className="flex items-center space-x-4">
+            <Filter className="h-5 w-5 text-gray-400" />
+            <TabsList>
+              <TabsTrigger value="new" className="relative">
+                New
+                {newAlertsCount > 0 && (
+                  <Badge variant="destructive" className="ml-2 bg-red-500 text-white px-2 py-0 text-xs">
                     {newAlertsCount}
-                  </span>
+                  </Badge>
                 )}
-              </button>
-            ))}
+              </TabsTrigger>
+              <TabsTrigger value="assigned">Assigned</TabsTrigger>
+              <TabsTrigger value="in_progress">In Progress</TabsTrigger>
+            </TabsList>
           </div>
-        </div>
+        </Tabs>
       </div>
 
       {/* Errors / Loading */}
@@ -521,7 +555,7 @@ const AlertsPanel: React.FC = () => {
       )}
 
       {/* Alerts Grid - Authority Layout */}
-      <div className="space-y-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {filteredAlerts.map((alert) => {
           // Highlight logic: Alert is less than 3 minutes old AND status is 'new'
           const isFresh = (Date.now() - new Date(alert.timestamp).getTime()) < 3 * 60 * 1000;
@@ -561,39 +595,6 @@ const AlertsPanel: React.FC = () => {
           </p>
         </div>
       )}
-
-      {/* Emergency Statistics */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">
-          Emergency Response Statistics
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="text-center p-4 bg-red-50 rounded-lg">
-            <p className="text-2xl font-bold text-red-600">
-              {alerts.filter((a) => a.status === "new").length}
-            </p>
-            <p className="text-sm text-red-700">New Alerts</p>
-          </div>
-          <div className="text-center p-4 bg-blue-50 rounded-lg">
-            <p className="text-2xl font-bold text-blue-600">
-              {alerts.filter((a) => a.status === "assigned" || a.status === "responding").length}
-            </p>
-            <p className="text-sm text-blue-700">Assigned</p>
-          </div>
-          <div className="text-center p-4 bg-yellow-50 rounded-lg">
-            <p className="text-2xl font-bold text-yellow-600">
-              {alerts.filter((a) => a.status === "in_progress").length}
-            </p>
-            <p className="text-sm text-yellow-700">In Progress</p>
-          </div>
-          <div className="text-center p-4 bg-green-50 rounded-lg">
-            <p className="text-2xl font-bold text-green-600">
-              {alerts.filter((a) => a.status === "resolved").length}
-            </p>
-            <p className="text-sm text-green-700">Resolved</p>
-          </div>
-        </div>
-      </div>
     </div>
   );
 };

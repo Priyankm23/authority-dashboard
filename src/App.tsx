@@ -6,6 +6,7 @@ import {
   createAuthoritySocket,
   disconnectAuthoritySocket,
 } from "./utils/socketClient";
+import { Toaster } from "./components/ui/sonner";
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -72,7 +73,7 @@ function App() {
         authoritySocketRef.current = null;
       }
     };
-    
+
     // Expose getAuthoritySocket for components to access socket
     window.getAuthoritySocket = () => {
       return authoritySocketRef.current;
@@ -115,12 +116,15 @@ function App() {
   }
 
   return (
-    <AppRouter
-      user={user}
-      setAuthView={setAuthView}
-      handleLogin={handleLogin}
-      handleLogout={handleLogout}
-    />
+    <>
+      <Toaster position="bottom-right" richColors closeButton />
+      <AppRouter
+        user={user}
+        setAuthView={setAuthView}
+        handleLogin={handleLogin}
+        handleLogout={handleLogout}
+      />
+    </>
   );
 }
 
