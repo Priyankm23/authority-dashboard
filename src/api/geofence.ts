@@ -9,8 +9,8 @@
   - Normalizes responses and throws on network/HTTP errors.
 */
 
-const DEFAULT_BASE = 'https://smart-tourist-safety-backend.onrender.com';
-const API_BASE = import.meta.env.VITE_API_BASE_URL || DEFAULT_BASE;
+import { API_BASE_URL } from "../config";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || API_BASE_URL;
 
 export type Zone = {
   id: string;
@@ -27,16 +27,16 @@ export type Zone = {
 
 export async function createZone(zone: Partial<Zone>): Promise<Zone> {
   const res = await fetch(`${API_BASE}/api/geofence/zone`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(zone)
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(zone),
   });
   if (!res.ok) throw new Error(`Failed to create zone: ${res.status}`);
   const data = await res.json();
   // API docs show response contains { success: true, message, zone: { ... } }
   if (data && data.zone) return data.zone as Zone;
   if (data && data.id) return data as Zone;
-  throw new Error('Unexpected response shape from createZone');
+  throw new Error("Unexpected response shape from createZone");
 }
 
 export async function getZones(): Promise<Zone[]> {
@@ -47,7 +47,7 @@ export async function getZones(): Promise<Zone[]> {
   if (data && Array.isArray(data.zones)) return data.zones as Zone[];
   if (data && Array.isArray(data.items)) return data.items as Zone[];
   // fallback: try alerts-style normalization
-  if (data && typeof data === 'object') {
+  if (data && typeof data === "object") {
     const possible = data.zones || data.data || data.items;
     if (Array.isArray(possible)) return possible as Zone[];
   }
@@ -60,15 +60,16 @@ export async function getZoneById(id: string): Promise<Zone | null> {
   if (!res.ok) throw new Error(`Failed to get zone ${id}: ${res.status}`);
   const data = await res.json();
   // docs show single object returned
-  if (data && typeof data === 'object') return data as Zone;
+  if (data && typeof data === "object") return data as Zone;
   return null;
 }
 
 export async function getHighRiskZoneCount(): Promise<number> {
   const res = await fetch(`${API_BASE}/api/geofence/count`);
-  if (!res.ok) throw new Error(`Failed to get high risk zone count: ${res.status}`);
+  if (!res.ok)
+    throw new Error(`Failed to get high risk zone count: ${res.status}`);
   const data = await res.json();
-  if (data && typeof data.highRiskZones === 'number') return data.highRiskZones;
+  if (data && typeof data.highRiskZones === "number") return data.highRiskZones;
   return 0;
 }
 
@@ -76,5 +77,5 @@ export default {
   createZone,
   getZones,
   getZoneById,
-  getHighRiskZoneCount
+  getHighRiskZoneCount,
 };

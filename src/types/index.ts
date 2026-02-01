@@ -28,21 +28,47 @@ export interface Tourist {
 
 export interface SOSAlert {
   id: string;
+  alertId?: string;
   touristId: string;
   touristName: string;
+  govId?: string;
+  // New fields from backend
+  phone?: string | null;
+  age?: number | null;
+  nationality?: string | null;
+  gender?: string | null;
+  bloodGroup?: string | null;
+  medicalConditions?: string | null;
+  allergies?: string | null;
+  emergencyContact?: {
+    name: string;
+    phone: string;
+    relation: string;
+  } | null;
   location: {
-    lat: number;
-    lng: number;
-    address: string;
+    lat?: number;
+    lng?: number;
+    coordinates?: [number, number];
+    type?: string;
+    address?: string;
+    locationName?: string;
   };
-  emergencyType: 'medical' | 'accident' | 'crime' | 'lost' | 'natural_disaster';
-  severity: 'low' | 'medium' | 'high' | 'critical';
+  locationName?: string;
+  emergencyType?: 'medical' | 'accident' | 'crime' | 'lost' | 'natural_disaster';
+  severity?: 'low' | 'medium' | 'high' | 'critical';
   safetyScore?: number;
+  sosReason?: {
+    reason: string;
+    extra?: string;
+  } | string;
   timestamp: string;
-  status: 'new' | 'assigned' | 'in_progress' | 'resolved';
+  status: 'new' | 'assigned' | 'in_progress' | 'resolved' | 'responding';
   assignedUnit?: string;
-  contactInfo: string;
-  description: string;
+  assignedTo?: (string | { authorityId: string; fullName: string; role?: string })[];
+  responseTime?: string | number;
+  responseDate?: string;
+  contactInfo?: string;
+  description?: string;
   emergencyContactName?: string;
   isLoggedOnChain?: boolean;
 }

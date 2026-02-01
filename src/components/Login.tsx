@@ -1,19 +1,20 @@
-import React, { useState, useEffect } from 'react';
-import { Shield, Users, AlertTriangle, Eye, EyeOff } from 'lucide-react';
-import { login as authLogin } from '../api/auth';
-import { User } from '../types';
-import { useNavigate } from 'react-router-dom';
-import { useToast } from './ToastProvider';
+import React, { useState, useEffect } from "react";
+import { Shield, Users, AlertTriangle, Eye, EyeOff } from "lucide-react";
+import { login as authLogin } from "../api/auth";
+import { User } from "../types";
+import { useNavigate } from "react-router-dom";
+import { useToast } from "./ToastProvider";
+import { API_BASE_URL } from "../config";
 
 interface LoginProps {
   onLogin: (user: User) => void;
 }
 
 const Login: React.FC<LoginProps> = ({ onLogin }) => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
 
   const [displayCount, setDisplayCount] = useState(0);
 
@@ -21,9 +22,13 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   useEffect(() => {
     const fetchSosCount = async () => {
       try {
-        const response = await fetch('https://smart-tourist-safety-backend.onrender.com/api/authority/count', {
-          credentials: 'include'
-        });
+        const headers: HeadersInit = {};
+        const token = localStorage.getItem("token");
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        const response = await fetch(
+          `${API_BASE_URL}/api/authority/count`,
+          { headers },
+        );
         const data = await response.json();
         if (data.success) {
           // Animate from 0 to target count
@@ -46,27 +51,27 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
           }, stepDuration);
         }
       } catch (error) {
-        console.error('Error fetching SOS count:', error);
+        console.error("Error fetching SOS count:", error);
       }
     };
 
     fetchSosCount();
     const interval = setInterval(fetchSosCount, 30000);
     return () => clearInterval(interval);
-  }, []);  // Remove sosCount dependency to prevent re-animation on state updates
+  }, []); // Remove sosCount dependency to prevent re-animation on state updates
 
   const navigate = useNavigate();
   const { showToast } = useToast();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    setError("");
 
     try {
       const res = await authLogin(email, password);
       if (!res.success) {
-        setError(res.message || 'Login failed');
-        showToast(res.message || 'Login failed', 'error');
+        setError(res.message || "Login failed");
+        showToast(res.message || "Login failed", "error");
         return;
       }
 
@@ -74,18 +79,33 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
       // if login was successful and we have user data
       if (res.user) {
         if (res.token) {
-          localStorage.setItem('token', res.token);
+          localStorage.setItem("token", res.token);
         }
         onLogin(res.user);
-        showToast('Login successful', 'success');
-        navigate('/dashboard');
+        // If the logged-in user is an authority, create socket immediately
+        try {
+          if (
+            (res.user as any).role === "police" &&
+            window.createAuthoritySocketForCurrentUser
+          ) {
+            // call the window helper exposed in App to create socket and store ref there
+            window.createAuthoritySocketForCurrentUser();
+          }
+        } catch (e) {
+          console.warn("Could not create authority socket immediately", e);
+        }
+        showToast("Login successful", "success");
+        navigate("/dashboard");
       } else {
-        setError('No user data received from server');
-        showToast('No user data received from server', 'error');
+        setError("No user data received from server");
+        showToast("No user data received from server", "error");
       }
     } catch (err: any) {
-      setError(err?.message || 'Unexpected error occurred during login');
-      showToast(err?.message || 'Unexpected error occurred during login', 'error');
+      setError(err?.message || "Unexpected error occurred during login");
+      showToast(
+        err?.message || "Unexpected error occurred during login",
+        "error",
+      );
     }
   };
 
@@ -106,28 +126,40 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
           <div className="flex flex-col space-y-4">
             <div className="p-4 bg-blue-50 rounded-lg transform transition-all hover:scale-105">
               <Shield className="h-8 w-8 text-blue-600 mb-2" />
-              <h3 className="font-medium text-gray-900">Real-time Monitoring</h3>
-              <p className="text-sm text-gray-600">Track tourist activities and respond to emergencies instantly</p>
+              <h3 className="font-medium text-gray-900">
+                Real-time Monitoring
+              </h3>
+              <p className="text-sm text-gray-600">
+                Track tourist activities and respond to emergencies instantly
+              </p>
             </div>
             <div className="p-4 bg-green-50 rounded-lg transform transition-all hover:scale-105">
               <Users className="h-8 w-8 text-green-600 mb-2" />
               <h3 className="font-medium text-gray-900">Tourist Management</h3>
-              <p className="text-sm text-gray-600">Efficiently manage tourist information and safety</p>
+              <p className="text-sm text-gray-600">
+                Efficiently manage tourist information and safety
+              </p>
             </div>
             <div className="p-4 bg-purple-50 rounded-lg transform transition-all hover:scale-105">
               <AlertTriangle className="h-8 w-8 text-purple-600 mb-2" />
               <h3 className="font-medium text-gray-900">Emergency Response</h3>
-              <p className="text-sm text-gray-600">Quick action protocols for crisis situations</p>
+              <p className="text-sm text-gray-600">
+                Quick action protocols for crisis situations
+              </p>
             </div>
           </div>
 
           <div className="flex items-center space-x-4 bg-white/80 backdrop-blur p-4 rounded-lg">
             <div className="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center shadow-lg">
-              <div className="text-2xl font-bold text-white">{displayCount}</div>
+              <div className="text-2xl font-bold text-white">
+                {displayCount}
+              </div>
             </div>
             <div className="flex-1">
               <h3 className="font-medium text-gray-900">Active SOS Alerts</h3>
-              <p className="text-sm text-gray-600">Waiting for immediate assistance</p>
+              <p className="text-sm text-gray-600">
+                Waiting for immediate assistance
+              </p>
             </div>
           </div>
         </div>
@@ -138,13 +170,18 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             <div className="mx-auto h-12 w-12 bg-blue-100 rounded-full flex items-center justify-center mb-4">
               <Shield className="h-6 w-6 text-blue-600" />
             </div>
-            <h2 className="text-2xl font-bold text-gray-900">Authority Login</h2>
+            <h2 className="text-2xl font-bold text-gray-900">
+              Authority Login
+            </h2>
             <p className="text-gray-600 mt-2">Secure access to the dashboard</p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-6">
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+              <label
+                htmlFor="email"
+                className="block text-sm font-medium text-gray-700 mb-2"
+              >
                 Official Email
               </label>
               <input
@@ -159,13 +196,16 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+              <label
+                htmlFor="password"
+                className="block text-sm font-medium text-gray-700 mb-2"
+              >
                 Password
               </label>
               <div className="relative">
                 <input
                   id="password"
-                  type={showPassword ? 'text' : 'password'}
+                  type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors pr-12"
@@ -201,9 +241,15 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
           </form>
 
           <div className="mt-6 text-center text-sm text-gray-500">
-            <p>Authorized personnel only. All access is logged and monitored.</p>
+            <p>
+              Authorized personnel only. All access is logged and monitored.
+            </p>
             <p className="mt-3">
-              <button type="button" onClick={() => navigate('/signup')} className="text-blue-600 hover:underline">
+              <button
+                type="button"
+                onClick={() => navigate("/signup")}
+                className="text-blue-600 hover:underline"
+              >
                 Need an account? Sign up
               </button>
             </p>

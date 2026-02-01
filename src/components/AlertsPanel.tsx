@@ -1,147 +1,268 @@
-import React, { useEffect, useState } from 'react';
-import { 
-  AlertTriangle, 
-  Clock, 
-  MapPin, 
-  Phone, 
-  Send, 
-  CheckCircle,
-  Eye,
-  Filter
-} from 'lucide-react';
-import { SOSAlert } from '../types';
-import alertsApi from '../api/alerts';
-import { useToast } from './ToastProvider';
+﻿import React, { useEffect, useState } from "react";
+import {
+  AlertTriangle,
+  Filter,
+  Wifi,
+  WifiOff,
+} from "lucide-react";
+import { SOSAlert } from "../types";
+import alertsApi from "../api/alerts";
+import { useToast } from "./ToastProvider";
+import { useSOSAlerts } from "../hooks/useSOSAlerts";
+import { AuthorityAlertCard } from "./AuthorityAlertCard";
+import { AlertDetailView } from "./AlertDetailView";
+import { formatTimeAgo, getSeverityColors, getSeverityFromScore } from "../utils/formatters";
 
 // Helper: map backend alert (see apidocs.md) to frontend SOSAlert
 const mapBackendToSOS = (a: any): SOSAlert => {
   // backend example fields: id, touristId, status, location: { coordinates: [lng, lat], locationName }, safetyScore, sosReason, emergencyContact, timestamp
-  const coords = a.location && a.location.coordinates ? a.location.coordinates : [0, 0];
-  const lng = coords[0];
-  const lat = coords[1];
+  // Accept several location shapes: { location: { coordinates: [lng, lat] } },
+  // { location: { lat, lng } }, or top-level lat/lng fields.
+  let lng = 0;
+  let lat = 0;
+  if (a.location) {
+    if (Array.isArray(a.location.coordinates) && a.location.coordinates.length >= 2) {
+      lng = Number(a.location.coordinates[0]) || 0;
+      lat = Number(a.location.coordinates[1]) || 0;
+    } else if (typeof a.location.lat === 'number' && typeof a.location.lng === 'number') {
+      lat = Number(a.location.lat) || 0;
+      lng = Number(a.location.lng) || 0;
+    }
+  } else if (typeof a.lat === 'number' && typeof a.lng === 'number') {
+    lat = Number(a.lat) || 0;
+    lng = Number(a.lng) || 0;
+  }
 
   // derive severity from safetyScore if provided
-  const safety = typeof a.safetyScore === 'number' ? a.safetyScore : 50;
-  let severity: SOSAlert['severity'] = 'medium';
-  if (safety >= 80) severity = 'low';
-  else if (safety >= 50) severity = 'medium';
-  else if (safety >= 20) severity = 'high';
-  else severity = 'critical';
+  // Backend sends safetyScore as decimal (0-1), convert to 0-100 if needed
+  let safety = typeof a.safetyScore === "number" ? a.safetyScore : 50;
+  // Convert decimal scores (0-1) to percentage (0-100)
+  if (safety <= 1) {
+    safety = safety * 100;
+  }
+  
+  let severity: SOSAlert["severity"] = "medium";
+  if (safety >= 80) severity = "low";
+  else if (safety >= 50) severity = "medium";
+  else if (safety >= 20) severity = "high";
+  else severity = "critical";
 
   const sosReason = a.sosReason || {};
   // backend may have emergencyContact or emergencyContacts (array)
-  const emergencyContact = a.emergencyContact || (Array.isArray(a.emergencyContacts) && a.emergencyContacts[0]) || {};
+  const emergencyContact =
+    a.emergencyContact ||
+    (Array.isArray(a.emergencyContacts) && a.emergencyContacts[0]) ||
+    (a.contact && (a.contact.name || a.contact.phone) ? a.contact : null) ||
+    {};
 
   // try to pick an emergencyType from reason text heuristically
-  const reasonText = (sosReason.reason || '').toLowerCase();
-  let emergencyType: SOSAlert['emergencyType'] = 'medical';
-  if (reasonText.includes('cyclone') || reasonText.includes('flood') || reasonText.includes('earthquake') || reasonText.includes('storm')) {
-    emergencyType = 'natural_disaster';
-  } else if (reasonText.includes('accident')) {
-    emergencyType = 'accident';
-  } else if (reasonText.includes('attack') || reasonText.includes('robbery') || reasonText.includes('assault')) {
-    emergencyType = 'crime';
-  } else if (reasonText.includes('lost')) {
-    emergencyType = 'lost';
+  const reasonText = (sosReason.reason || "").toLowerCase();
+  let emergencyType: SOSAlert["emergencyType"] = "medical";
+  if (
+    reasonText.includes("cyclone") ||
+    reasonText.includes("flood") ||
+    reasonText.includes("earthquake") ||
+    reasonText.includes("storm")
+  ) {
+    emergencyType = "natural_disaster";
+  } else if (reasonText.includes("accident")) {
+    emergencyType = "accident";
+  } else if (
+    reasonText.includes("attack") ||
+    reasonText.includes("robbery") ||
+    reasonText.includes("assault")
+  ) {
+    emergencyType = "crime";
+  } else if (reasonText.includes("lost")) {
+    emergencyType = "lost";
   }
 
   const descriptionParts: string[] = [];
   if (sosReason.reason) descriptionParts.push(String(sosReason.reason));
   if (sosReason.weatherInfo) {
     // weatherInfo may be object or string
-    descriptionParts.push(typeof sosReason.weatherInfo === 'string' ? sosReason.weatherInfo : JSON.stringify(sosReason.weatherInfo));
+    descriptionParts.push(
+      typeof sosReason.weatherInfo === "string"
+        ? sosReason.weatherInfo
+        : JSON.stringify(sosReason.weatherInfo),
+    );
   }
   if (sosReason.extra) {
-    descriptionParts.push(typeof sosReason.extra === 'string' ? sosReason.extra : JSON.stringify(sosReason.extra));
+    descriptionParts.push(
+      typeof sosReason.extra === "string"
+        ? sosReason.extra
+        : JSON.stringify(sosReason.extra),
+    );
   }
 
+  // Check for tourist object
+  const tourist = a.tourist || {};
+
   return {
-    id: String(a._id || a.id),
-    touristId: a.touristId || '',
-    touristName: a.touristName || emergencyContact?.name || `Tourist ${a.touristId || ''}`,
+    // Backend socket emits alertId, REST API uses _id/id - check all three
+    id: String(a.alertId || a._id || a.id || Date.now()),
+    alertId: a.alertId || a._id || a.id,
+    // Try multiple fields for tourist id/name (backend may use nested objects)
+    touristId:
+      String(a.touristId || tourist.id || tourist._id || a.id || a._id || ""),
+    touristName:
+      a.touristName || tourist.name || tourist.fullName || 
+      // Only fallback to other names if explicitly NOT emergency contact
+      (a.name !== emergencyContact?.name ? a.name : null) || 
+      `Tourist ${a.touristId || tourist.id || "Unknown"}`,
+    // New fields from backend - check top level then nested tourist object
+    govId: a.govId || tourist.govId || tourist.govIdHash || null, // Handle both govId and legacy hash
+    phone: a.phone || tourist.phone || tourist.phoneNumber || null,
+    age: a.age || tourist.age || null,
+    nationality: a.nationality || tourist.nationality || tourist.country || null,
+    gender: a.gender || tourist.gender || null,
+    bloodGroup: a.bloodGroup || tourist.bloodGroup || null,
+    medicalConditions: a.medicalConditions || tourist.medicalConditions || null,
+    allergies: a.allergies || tourist.allergies || null,
+    emergencyContact: a.emergencyContact || emergencyContact || null,
+    locationName: a.locationName || (a.location && a.location.locationName) || null,
     location: {
       lat: Number(lat) || 0,
       lng: Number(lng) || 0,
-      address: a.locationName || (a.location && a.location.locationName) || (a.location && a.location.address) || 'Unknown location'
+      coordinates: [lng, lat],
+      address:
+        a.locationName ||
+        (a.location && (a.location.locationName || a.location.address)) ||
+        a.address ||
+        "Unknown location",
     },
     emergencyType,
     severity,
+    sosReason: a.sosReason,
     timestamp: a.timestamp || new Date().toISOString(),
-    status: a.status || 'new',
-    // assignedTo may be an array; show first or join
-    assignedUnit: Array.isArray(a.assignedTo) ? (a.assignedTo.length ? String(a.assignedTo[0]) : undefined) : a.assignedUnit,
-    contactInfo: emergencyContact?.phone || (Array.isArray(a.emergencyContacts) && a.emergencyContacts[0] && a.emergencyContacts[0].phone) || a.contactInfo || '',
-    description: descriptionParts.join(' - '),
-    emergencyContactName: emergencyContact?.name || (Array.isArray(a.emergencyContacts) && a.emergencyContacts[0] && a.emergencyContacts[0].name) || '',
+    status: a.status || "new",
+    // assignedTo may be an array of strings or objects { authorityId, fullName, role }
+    assignedUnit: Array.isArray(a.assignedTo) && a.assignedTo.length
+      ? typeof a.assignedTo[0] === 'object'
+        ? (a.assignedTo[0].fullName || a.assignedTo[0].authorityId || 'Unknown Unit')
+        : String(a.assignedTo[0])
+      : a.assignedUnit,
+    // Keep raw array but ensure we don't break likely string[] consumers if strictly typed?
+    // For now, let's just leave assignedTo as is, complex objects will just exist in the data
+    assignedTo: Array.isArray(a.assignedTo) ? a.assignedTo : [],
+    // If backend returns a number (seconds), formatted it, else pass through
+    responseTime: 
+      typeof a.responseTime === 'number' 
+        ? formatTimeAgo(new Date(Date.now() - a.responseTime * 1000)).replace("ago", "") // rough fallback or just leave as is?
+          // Better: recreate the HH:MM:SS format if it's seconds
+          // Actually, let's just allow it or simple format:
+          : a.responseTime,
+    responseDate: a.responseDate,
+    contactInfo:
+      emergencyContact?.phone ||
+      (Array.isArray(a.emergencyContacts) &&
+        a.emergencyContacts[0] &&
+        a.emergencyContacts[0].phone) ||
+      a.contactInfo ||
+      "",
+    description: descriptionParts.join(" - "),
+    emergencyContactName:
+      emergencyContact?.name ||
+      (Array.isArray(a.emergencyContacts) &&
+        a.emergencyContacts[0] &&
+        a.emergencyContacts[0].name) ||
+      "",
     isLoggedOnChain: a.isLoggedOnChain === true,
-    safetyScore: safety
+    safetyScore: safety,
   } as SOSAlert;
 };
 
 const AlertsPanel: React.FC = () => {
   const [alerts, setAlerts] = useState<SOSAlert[]>([]);
   const [selectedAlert, setSelectedAlert] = useState<SOSAlert | null>(null);
-  const [filter, setFilter] = useState<'all' | 'new' | 'assigned' | 'in_progress'>('all');
+  const [filter, setFilter] = useState<
+    "all" | "new" | "assigned" | "in_progress"
+  >("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { showToast } = useToast();
-
-  const getSeverityColor = (severity: string) => {
-    switch (severity) {
-      case 'critical': return 'bg-red-600 text-white';
-      case 'high': return 'bg-red-500 text-white';
-      case 'medium': return 'bg-yellow-500 text-white';
-      case 'low': return 'bg-green-500 text-white';
-      default: return 'bg-gray-500 text-white';
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'new': return 'bg-red-100 text-red-800';
-      case 'assigned': return 'bg-blue-100 text-blue-800';
-      case 'in_progress': return 'bg-yellow-100 text-yellow-800';
-      case 'resolved': return 'bg-green-100 text-green-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  const getEmergencyTypeIcon = (type: string) => {
-    switch (type) {
-      case 'medical': return '🏥';
-      case 'accident': return '🚨';
-      case 'crime': return '🚔';
-      case 'lost': return '🗺️';
-      case 'natural_disaster': return '⚠️';
-      default: return '❓';
-    }
-  };
+  
+  // Use the SOS alerts hook for real-time updates (latestAlert only)
+  const { latestAlert } = useSOSAlerts();
+  
+  // Track socket connection state
+  const [isSocketConnected, setIsSocketConnected] = useState(false);
+  
+  // Check socket connection status
+  useEffect(() => {
+    const checkConnection = () => {
+      const sock = (window as any).getAuthoritySocket ? (window as any).getAuthoritySocket() : null;
+      setIsSocketConnected(sock?.connected || false);
+    };
+    
+    checkConnection();
+    const interval = setInterval(checkConnection, 3000);
+    
+    return () => clearInterval(interval);
+  }, []);
 
   const assignPoliceUnit = async (alertId: string) => {
     try {
-      await alertsApi.assignUnit(alertId);
-      showToast('Unit assigned successfully', 'success');
-      setAlerts(prev => prev.map(alert => 
-        alert.id === alertId 
-          ? { ...alert, status: 'assigned' as const, assignedUnit: 'Assigned' } 
-          : alert
-      ));
+      const alert = alerts.find((a) => a.id === alertId);
+      let responseTimeVal: string | number = 0;
+      
+      if (alert) {
+        const start = new Date(alert.timestamp).getTime();
+        const now = Date.now();
+        // Calculate difference in seconds
+        const diff = Math.floor((now - start) / 1000);
+        
+        // Format for display/logging if needed, but send NUMBER to backend
+        // This avoids 500 errors if backend expects Number
+        responseTimeVal = diff; 
+      }
+
+      console.log("👮 Assigning unit to alert:", alertId, "Response Time (seconds):", responseTimeVal);
+      const updatedRaw = await alertsApi.assignUnit(alertId, { responseTime: responseTimeVal });
+      const updated = mapBackendToSOS(updatedRaw);
+      
+      showToast("Unit assigned successfully", "success");
+      setAlerts((prev) =>
+        prev.map((a) => (a.id === alertId ? updated : a))
+      );
     } catch (err: any) {
-      console.error('Failed to assign unit:', err);
-      showToast(err.message || 'Failed to assign unit', 'error');
+      console.error("Failed to assign unit:", err);
+      showToast(err.message || "Failed to assign unit", "error");
     }
   };
 
   const resolveAlert = (alertId: string) => {
-    setAlerts(alerts.map(alert => 
-      alert.id === alertId 
-        ? { ...alert, status: 'resolved' as const }
-        : alert
-    ));
+    setAlerts(
+      alerts.map((alert) =>
+        alert.id === alertId
+          ? { ...alert, status: "resolved" as const }
+          : alert,
+      ),
+    );
+  };
+  const handleRespond = (alert: SOSAlert) => {
+    if (alert.status === "new") {
+      assignPoliceUnit(alert.id);
+    } else if (alert.status !== "resolved") {
+      resolveAlert(alert.id);
+    }
   };
 
-  const filteredAlerts = filter === 'all' ? alerts : alerts.filter(alert => alert.status === filter);
-  const newAlertsCount = alerts.filter(alert => alert.status === 'new').length;
+
+
+
+  const filteredAlerts =
+    filter === "all"
+      ? alerts
+      : alerts.filter((alert) => {
+          if (filter === "assigned") {
+            return alert.status === "assigned" || alert.status === "responding";
+          }
+          return alert.status === filter;
+        });
+  const newAlertsCount = alerts.filter(
+    (alert) => alert.status === "new",
+  ).length;
 
   useEffect(() => {
     let subId: string | null = null;
@@ -150,11 +271,39 @@ const AlertsPanel: React.FC = () => {
       setLoading(true);
       setError(null);
       try {
-        const data = await alertsApi.fetchAlerts();
-        const mapped = (Array.isArray(data) ? data : []).map(mapBackendToSOS);
-        setAlerts(mapped);
+        let data;
+        let mapped;
+        
+        if (filter === "assigned") {
+          data = await alertsApi.fetchRespondingAlerts();
+          mapped = (Array.isArray(data) ? data : []).map(mapBackendToSOS);
+          // When fetching assigned, we replace the view or merge?
+          // User request implies this is THE route for assigned alerts.
+          // We can merge with existing 'new' alerts to keep them visible if needed, 
+          // or just switch the view. For now, let's update the main alerts list 
+          // but arguably we should manage 'assigned' separately or just re-fetch all.
+          // Strategy: Fetch all standard alerts + assigned details and merge.
+          const standardData = await alertsApi.fetchAlerts();
+          const standardMapped = (Array.isArray(standardData) ? standardData : []).map(mapBackendToSOS);
+          
+          // Merge: use responding detail if available, else standard
+          const merged = [...standardMapped];
+          mapped.forEach(assignedAlert => {
+            const idx = merged.findIndex(a => a.id === assignedAlert.id);
+            if (idx >= 0) {
+              merged[idx] = assignedAlert;
+            } else {
+              merged.push(assignedAlert);
+            }
+          });
+          setAlerts(merged);
+        } else {
+          data = await alertsApi.fetchAlerts();
+          mapped = (Array.isArray(data) ? data : []).map(mapBackendToSOS);
+          setAlerts(mapped);
+        }
       } catch (e: any) {
-        setError(e?.message || 'Failed to load alerts');
+        setError(e?.message || "Failed to load alerts");
       } finally {
         setLoading(false);
       }
@@ -165,23 +314,96 @@ const AlertsPanel: React.FC = () => {
     // subscribe to live updates
     try {
       subId = alertsApi.subscribeToAlerts((payload: any[]) => {
+        console.log("[AlertsPanel] ðŸ“¨ Received alert update via subscription");
+        console.log("[AlertsPanel] Payload:", payload);
+        
         try {
-          const mapped = (Array.isArray(payload) ? payload : []).map(mapBackendToSOS);
-          setAlerts(mapped);
+          // Backend may send a single alert object or an array. Normalize to array.
+          const incomingRaw = Array.isArray(payload) ? payload : [payload];
+          const incomingMapped = incomingRaw.map(mapBackendToSOS);
+          
+          console.log("[AlertsPanel] Mapped alerts:", incomingMapped.map(a => ({ id: a.id, name: a.touristName })));
+
+          // If we received a single alert, merge it into existing list (update by id or prepend).
+          if (incomingMapped.length === 1) {
+            const inc = incomingMapped[0];
+            
+            // Validate the alert has a proper ID to prevent duplicates
+            if (!inc.id || inc.id === 'undefined') {
+              console.error("[AlertsPanel] âŒ Alert missing valid ID, skipping:", inc);
+              return;
+            }
+            
+            console.log(`[AlertsPanel] âœ… Processing alert ID:`, inc.id, "Tourist:", inc.touristName);
+            
+            setAlerts((prev) => {
+              // update existing alert if present
+              const idx = prev.findIndex((a) => a.id === inc.id);
+              if (idx !== -1) {
+                console.log(`[AlertsPanel] Updating existing alert at index ${idx}:`, inc.id);
+                const copy = [...prev];
+                copy[idx] = { ...copy[idx], ...inc };
+                return copy;
+              }
+              // otherwise prepend new alert
+              console.log("[AlertsPanel] âœ¨ Adding new alert:", inc.id);
+              return [inc, ...prev];
+            });
+            // show a toast for immediate visibility
+            try {
+              showToast(`New SOS: ${incomingMapped[0].touristName}`, "info");
+            } catch (e) {
+              // ignore toast errors
+            }
+          } else {
+            // multi-alert payloads replace the current list (initial load or bulk update)
+            console.log("[AlertsPanel] Replacing entire alert list with", incomingMapped.length, "alerts");
+            setAlerts(incomingMapped);
+          }
         } catch (e) {
           // ignore mapping error
           // eslint-disable-next-line no-console
-          console.error('Error mapping incoming alerts', e);
+          console.error("[AlertsPanel] âŒ Error mapping incoming alerts:", e);
         }
       });
     } catch (e) {
       // eslint-disable-next-line no-console
-      console.warn('Failed to subscribe to alerts, will rely on polling if available', e);
+      console.warn(
+        "[AlertsPanel] Failed to subscribe to alerts, will rely on polling if available",
+        e,
+      );
     }
 
     return () => {
       if (subId) alertsApi.unsubscribe(subId);
     };
+  }, [
+    filter, 
+    // Re-run subscription only if filter changes? 
+    // Actually alertsApi probably handles deduping, but for safety let's leave deps as is.
+  ]);
+
+  // Deep Link Handling - DISABLED to prevent auto-opening cards
+  // User can manually open cards by clicking on them
+  // useEffect(() => {
+  //   const params = new URLSearchParams(location.search);
+  //   const openAlertId = params.get('openAlertId');
+  //   if (openAlertId && alerts.length > 0) {
+  //     const targetAlert = alerts.find(a => a.alertId === openAlertId || a.id === openAlertId);
+  //     if (targetAlert) {
+  //       console.log("🔗 Deep linking to alert:", openAlertId);
+  //       setSelectedAlert(targetAlert);
+  //     }
+  //   }
+  // }, [location.search, alerts]);
+  
+  // Request notification permission on mount
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().then(permission => {
+        console.log('[AlertsPanel] Notification permission:', permission);
+      });
+    }
   }, []);
 
   return (
@@ -189,13 +411,36 @@ const AlertsPanel: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">SOS Alerts & Emergency Response</h1>
-          <p className="text-gray-600 mt-2">Real-time emergency alerts and incident management</p>
+          <h1 className="text-3xl font-bold text-gray-900">
+            SOS Alerts & Emergency Response
+          </h1>
+          <p className="text-gray-600 mt-2">
+            Real-time emergency alerts and incident management
+          </p>
         </div>
         <div className="flex items-center space-x-4 mt-4 sm:mt-0">
+          {/* Socket Connection Status */}
+          <div className={`flex items-center space-x-2 px-3 py-1.5 rounded-full text-sm font-medium ${
+            isSocketConnected
+              ? "bg-green-100 text-green-800"
+              : "bg-red-100 text-red-800"
+          }`}>
+            {isSocketConnected ? (
+              <>
+                <Wifi className="h-4 w-4" />
+                <span>Connected</span>
+              </>
+            ) : (
+              <>
+                <WifiOff className="h-4 w-4" />
+                <span>Disconnected</span>
+              </>
+            )}
+          </div>
+          
           {newAlertsCount > 0 && (
             <div className="bg-red-100 text-red-800 px-3 py-1 rounded-full text-sm font-medium">
-              {newAlertsCount} New Alert{newAlertsCount > 1 ? 's' : ''}
+              {newAlertsCount} New Alert{newAlertsCount > 1 ? "s" : ""}
             </div>
           )}
           <button className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors">
@@ -204,24 +449,52 @@ const AlertsPanel: React.FC = () => {
           </button>
         </div>
       </div>
+      
+      {/* Latest Alert Banner */}
+      {latestAlert && (
+        <div className={`rounded-xl shadow-lg p-6 border-2 animate-pulse ${getSeverityColors(latestAlert.severity || getSeverityFromScore(latestAlert.safetyScore || 50)).bg} ${getSeverityColors(latestAlert.severity || getSeverityFromScore(latestAlert.safetyScore || 50)).border}`}>
+          <div className="flex items-start justify-between">
+            <div className={`flex-1 ${getSeverityColors(latestAlert.severity || getSeverityFromScore(latestAlert.safetyScore || 50)).text}`}>
+              <h2 className="text-2xl font-bold mb-2 flex items-center">
+                <AlertTriangle className="h-6 w-6 mr-2" />
+                NEW SOS ALERT
+              </h2>
+              <p className="text-lg mb-1">
+                <strong>Location:</strong> {latestAlert.location.locationName || 'Unknown'}
+              </p>
+              <p className="text-sm opacity-90">
+                Tourist ID: {latestAlert.touristId} | Time: {new Date(latestAlert.timestamp).toLocaleTimeString()}
+              </p>
+            </div>
+            <button
+              onClick={() => setSelectedAlert(latestAlert)}
+              className="bg-white text-red-600 px-6 py-3 rounded-lg font-bold hover:bg-gray-100 transition-colors shadow-md"
+            >
+              View Alert Details
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Filter Tabs */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <div className="flex items-center space-x-4">
           <Filter className="h-5 w-5 text-gray-400" />
           <div className="flex space-x-2">
-            {['all', 'new', 'assigned', 'in_progress'].map((tab) => (
+            {["new", "assigned", "in_progress"].map((tab) => (
               <button
                 key={tab}
                 onClick={() => setFilter(tab as any)}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   filter === tab
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                    ? "bg-blue-100 text-blue-700"
+                    : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
                 }`}
               >
-                {tab === 'all' ? 'All Alerts' : tab.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                {tab === 'new' && newAlertsCount > 0 && (
+                {tab
+                      .replace("_", " ")
+                      .replace(/\b\w/g, (l) => l.toUpperCase())}
+                {tab === "new" && newAlertsCount > 0 && (
                   <span className="ml-2 bg-red-500 text-white rounded-full px-2 py-1 text-xs">
                     {newAlertsCount}
                   </span>
@@ -243,219 +516,80 @@ const AlertsPanel: React.FC = () => {
       {loading && (
         <div className="text-center py-12">
           <div className="animate-pulse mx-auto h-10 w-10 bg-gray-200 rounded-full mb-4" />
-          <p className="text-gray-600">Loading live SOS alerts…</p>
+          <p className="text-gray-600">Loading live SOS alertsâ€¦</p>
         </div>
       )}
 
-      {/* Alerts List */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-        {filteredAlerts.map((alert) => (
-          <div key={alert.id} className={`bg-white rounded-xl shadow border transition-all duration-200 hover:shadow-lg ${
-            alert.status === 'new' ? 'border-red-200 bg-red-50/20' : 'border-gray-200'
-          }`}>
-            <div className="p-5">
-              <div className="flex justify-between items-start mb-4">
-                <div className="flex items-center space-x-3">
-                  <span className="text-3xl filter drop-shadow-sm">{getEmergencyTypeIcon(alert.emergencyType)}</span>
-                  <div>
-                    <h3 className="font-bold text-gray-900 text-lg">{alert.touristName}</h3>
-                    <div className="flex items-center space-x-2 mt-1">
-                      <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${getSeverityColor(alert.severity)}`}>
-                        {alert.severity.toUpperCase()}
-                      </span>
-                      {alert.status === 'new' && (
-                        <span className="bg-red-600 text-white text-xs font-bold px-2 py-0.5 rounded-full animate-pulse shadow-sm">
-                          NEW
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
+      {/* Alerts Grid - Authority Layout */}
+      <div className="space-y-4">
+        {filteredAlerts.map((alert) => {
+          // Highlight logic: Alert is less than 3 minutes old AND status is 'new'
+          const isFresh = (Date.now() - new Date(alert.timestamp).getTime()) < 3 * 60 * 1000;
+          const shouldHighlight = isFresh && alert.status === 'new';
 
-              <div className="space-y-3 text-sm text-gray-600 mb-5">
-                <div className="flex items-center space-x-2.5">
-                  <Clock className="h-4 w-4 text-gray-500" />
-                  <span className="font-medium text-gray-700">{new Date(alert.timestamp).toLocaleString()}</span>
-                </div>
-                <div className="flex items-center space-x-2.5">
-                  <MapPin className="h-4 w-4 text-gray-500" />
-                  <span className="truncate text-gray-700">{alert.location.address}</span>
-                </div>
-                <div className="flex items-center space-x-2.5">
-                   <Phone className="h-4 w-4 text-gray-500" />
-                   <span className="text-gray-700">{alert.contactInfo}</span>
-                </div>
-                <div className="flex items-center space-x-2.5">
-                   <AlertTriangle className="h-4 w-4 text-gray-500" />
-                   <span className="capitalize text-gray-700">{alert.emergencyType.replace('_', ' ')}</span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 pt-2">
-                {alert.status === 'new' ? (
-                  <button
-                    onClick={() => assignPoliceUnit(alert.id)}
-                    className="flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg text-sm font-semibold shadow-sm transition-all active:scale-95"
-                  >
-                    <Send className="h-4 w-4 mr-2" />
-                    Assign Unit
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => resolveAlert(alert.id)}
-                    disabled={alert.status === 'resolved'}
-                    className={`flex items-center justify-center py-2 px-4 rounded-lg text-sm font-semibold shadow-sm transition-all active:scale-95 ${
-                      alert.status === 'resolved' 
-                        ? 'bg-green-100 text-green-700 cursor-default' 
-                        : 'bg-green-600 hover:bg-green-700 text-white'
-                    }`}
-                  >
-                    <CheckCircle className="h-4 w-4 mr-2" />
-                    {alert.status === 'resolved' ? 'Resolved' : 'Resolve'}
-                  </button>
-                )}
-                
-                <button
-                  onClick={() => setSelectedAlert(alert)}
-                  className="flex items-center justify-center bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 py-2 px-4 rounded-lg text-sm font-medium shadow-sm transition-all"
-                >
-                  <Eye className="h-4 w-4 mr-2" />
-                  View Details
-                </button>
-              </div>
-            </div>
-          </div>
-        ))}
+          return (
+            <AuthorityAlertCard
+              key={alert.id}
+              alert={alert}
+              onRespond={handleRespond}
+              onViewDetails={setSelectedAlert}
+              isHighlighted={shouldHighlight}
+            />
+          );
+        })}
       </div>
 
-      {/* Alert Details Modal */}
+      {/* Alert Detail View */}
       {selectedAlert && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl animate-in fade-in zoom-in duration-200 scale-100">
-            <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 rounded-t-2xl">
-                <div>
-                    <h2 className="text-xl font-bold text-gray-900">SOS Alert Details</h2>
-                    <p className="text-sm text-gray-500 mt-0.5">ID: {selectedAlert.id} {selectedAlert.isLoggedOnChain && <span className="ml-2 inline-flex items-center text-blue-600 bg-blue-50 px-2 py-0.5 rounded text-xs font-medium">🔗 Blockchain Verified</span>}</p>
-                </div>
-                <button onClick={() => setSelectedAlert(null)} className="text-gray-400 hover:text-gray-600 p-1 hover:bg-gray-100 rounded-full transition-colors">
-                    <span className="text-2xl leading-none">&times;</span>
-                </button>
-            </div>
-            
-            <div className="p-6 space-y-6">
-                {/* Sender Info */}
-                <div className="grid grid-cols-2 gap-4">
-                    <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Tourist Name</label>
-                        <p className="font-semibold text-gray-900 text-lg mt-1">{selectedAlert.touristName}</p>
-                    </div>
-                     <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Tourist ID</label>
-                        <p className="font-mono text-sm text-gray-700 mt-1">{selectedAlert.touristId}</p>
-                    </div>
-                     <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Blockchain Status</label>
-                         <div className="mt-1 flex items-center">
-                            <div className={`w-2 h-2 rounded-full mr-2 ${selectedAlert.isLoggedOnChain ? 'bg-green-500' : 'bg-gray-300'}`}></div>
-                            <span className={`font-medium ${selectedAlert.isLoggedOnChain ? 'text-green-700' : 'text-gray-500'}`}>
-                                {selectedAlert.isLoggedOnChain ? 'Verified & Logged' : 'Not Logged'}
-                            </span>
-                         </div>
-                    </div>
-                     <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Safety Score</label>
-                        <div className="mt-1 flex items-center space-x-2">
-                            <span className="text-2xl font-bold text-gray-900">{selectedAlert.safetyScore || 'N/A'}</span>
-                            <span className={`text-xs font-bold px-2 py-1 rounded-full ${getSeverityColor(selectedAlert.severity)}`}>
-                                {selectedAlert.severity.toUpperCase()}
-                            </span>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Emergency Info */}
-                <div className="border-t border-gray-100 pt-6">
-                    <h3 className="font-semibold text-gray-900 mb-4 flex items-center text-lg">
-                        <AlertTriangle className="h-5 w-5 mr-2 text-red-500"/> Emergency Context
-                    </h3>
-                    <div className="space-y-4">
-                         <div className="flex items-center">
-                            <span className="text-sm font-medium text-gray-500 w-24">Type:</span>
-                            <span className="font-medium text-gray-900 capitalize px-3 py-1 bg-gray-100 rounded-full text-sm">{selectedAlert.emergencyType.replace('_', ' ')}</span>
-                         </div>
-                         <div>
-                             <span className="text-sm font-medium text-gray-500 mb-2 block">Reported Reason:</span>
-                             <div className="p-4 bg-red-50 text-red-900 rounded-lg text-sm border border-red-100 leading-relaxed">
-                                {selectedAlert.description || "No specific reason provided."}
-                             </div>
-                         </div>
-                    </div>
-                </div>
-
-                {/* Contact Info */}
-                 <div className="border-t border-gray-100 pt-6">
-                    <h3 className="font-semibold text-gray-900 mb-4 flex items-center text-lg">
-                        <Phone className="h-5 w-5 mr-2 text-blue-500"/> Contact & Location
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100">
-                             <label className="text-xs font-semibold text-gray-500 uppercase">Emergency Contact</label>
-                             <p className="font-semibold text-gray-900 mt-1 text-lg">{selectedAlert.emergencyContactName || "N/A"}</p>
-                             <p className="text-sm text-gray-600 flex items-center mt-1">
-                                <Phone className="h-3 w-3 mr-1"/> {selectedAlert.contactInfo}
-                             </p>
-                        </div>
-                         <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
-                             <label className="text-xs font-semibold text-gray-500 uppercase">Current Location</label>
-                             <p className="font-medium text-gray-900 mt-1">{selectedAlert.location.address}</p>
-                             <p className="text-xs font-mono text-gray-500 mt-2 bg-white px-2 py-1 rounded border border-gray-200 inline-block">
-                                {selectedAlert.location.lat.toFixed(6)}, {selectedAlert.location.lng.toFixed(6)}
-                             </p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div className="p-6 bg-gray-50/80 rounded-b-2xl border-t border-gray-200 flex justify-end">
-                <button onClick={() => setSelectedAlert(null)} className="px-6 py-2.5 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 shadow-sm transition-all active:scale-95">
-                    Close Details
-                </button>
-            </div>
-          </div>
-        </div>
+        <AlertDetailView
+          alert={selectedAlert}
+          onClose={() => setSelectedAlert(null)}
+          onRespond={handleRespond}
+        />
       )}
 
       {filteredAlerts.length === 0 && (
         <div className="text-center py-12">
           <AlertTriangle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No alerts found</h3>
+          <h3 className="text-lg font-medium text-gray-900 mb-2">
+            No alerts found
+          </h3>
           <p className="text-gray-600">
-            {filter === 'all' 
-              ? 'No emergency alerts at this time.' 
-              : `No alerts with status "${filter.replace('_', ' ')}" found.`}
+            {filter === "all"
+              ? "No emergency alerts at this time."
+              : `No alerts with status "${filter.replace("_", " ")}" found.`}
           </p>
         </div>
       )}
 
       {/* Emergency Statistics */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">Emergency Response Statistics</h2>
+        <h2 className="text-xl font-semibold text-gray-900 mb-4">
+          Emergency Response Statistics
+        </h2>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="text-center p-4 bg-red-50 rounded-lg">
-            <p className="text-2xl font-bold text-red-600">{alerts.filter(a => a.status === 'new').length}</p>
+            <p className="text-2xl font-bold text-red-600">
+              {alerts.filter((a) => a.status === "new").length}
+            </p>
             <p className="text-sm text-red-700">New Alerts</p>
           </div>
           <div className="text-center p-4 bg-blue-50 rounded-lg">
-            <p className="text-2xl font-bold text-blue-600">{alerts.filter(a => a.status === 'assigned').length}</p>
+            <p className="text-2xl font-bold text-blue-600">
+              {alerts.filter((a) => a.status === "assigned" || a.status === "responding").length}
+            </p>
             <p className="text-sm text-blue-700">Assigned</p>
           </div>
           <div className="text-center p-4 bg-yellow-50 rounded-lg">
-            <p className="text-2xl font-bold text-yellow-600">{alerts.filter(a => a.status === 'in_progress').length}</p>
+            <p className="text-2xl font-bold text-yellow-600">
+              {alerts.filter((a) => a.status === "in_progress").length}
+            </p>
             <p className="text-sm text-yellow-700">In Progress</p>
           </div>
           <div className="text-center p-4 bg-green-50 rounded-lg">
-            <p className="text-2xl font-bold text-green-600">{alerts.filter(a => a.status === 'resolved').length}</p>
+            <p className="text-2xl font-bold text-green-600">
+              {alerts.filter((a) => a.status === "resolved").length}
+            </p>
             <p className="text-sm text-green-700">Resolved</p>
           </div>
         </div>

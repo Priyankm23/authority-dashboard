@@ -1,5 +1,5 @@
-const DEFAULT_BASE = 'https://smart-tourist-safety-backend.onrender.com';
-const API_BASE =  DEFAULT_BASE;
+import { API_BASE_URL } from "../config";
+const API_BASE = API_BASE_URL;
 
 export interface RecentAlert {
   id: string;
@@ -21,6 +21,50 @@ export interface TouristOverview {
   regTxHash: string;
 }
 
+export interface Analytics {
+  responseAnalysis: {
+    avgTime: string;
+    avgTimeMinutes: number;
+    samples: number[];
+  };
+  unitUtilization: {
+    percent: number;
+    engaged: number;
+    total: number;
+    label: string;
+  };
+  incidentAnalysis: {
+    severityBreakdown: {
+      critical: number;
+      high: number;
+      medium: number;
+      low: number;
+    };
+    recentStream: {
+      id: string;
+      title: string;
+      type: string;
+      severity: string;
+      time: string;
+      location?: {
+        lat: number;
+        lng: number;
+      };
+    }[];
+  };
+  demographics: {
+    mostSosFromAge: string;
+    soloTravelersPercent: string;
+    topGroup: string;
+  };
+  predictions: {
+    crowdSurge: string;
+    riskForecast: string;
+    proactiveDeployment: string;
+  };
+  patterns: Record<string, string>;
+}
+
 export interface DashboardStats {
   activeTourists: {
     count: number;
@@ -39,16 +83,19 @@ export interface DashboardStats {
   };
   recentAlerts: RecentAlert[];
   touristOverview: TouristOverview[];
+  analytics?: Analytics;
 }
 
 export async function fetchDashboardStats(): Promise<DashboardStats> {
   // Assuming the route is mounted under /api/authority like other authority routes
   const res = await fetch(`${API_BASE}/api/authority/dashboard-stats`, {
     headers: {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
       // Include authorization header if token exists in localStorage
-      ...(localStorage.getItem('token') ? { 'Authorization': `Bearer ${localStorage.getItem('token')}` } : {})
-    }
+      ...(localStorage.getItem("token")
+        ? { Authorization: `Bearer ${localStorage.getItem("token")}` }
+        : {}),
+    },
   });
 
   if (!res.ok) {
@@ -59,6 +106,6 @@ export async function fetchDashboardStats(): Promise<DashboardStats> {
   if (json.success && json.data) {
     return json.data as DashboardStats;
   }
-  
-  throw new Error('Invalid response format');
+
+  throw new Error("Invalid response format");
 }

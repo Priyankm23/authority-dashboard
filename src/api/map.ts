@@ -1,5 +1,5 @@
-const DEFAULT_BASE = 'https://smart-tourist-safety-backend.onrender.com';
-const API_BASE = import.meta.env.VITE_API_BASE_URL || DEFAULT_BASE;
+import { API_BASE_URL } from "../config";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || API_BASE_URL;
 
 export interface MapStats {
   totalTourists: number;
@@ -11,27 +11,27 @@ export interface MapStats {
 export interface MapTourist {
   id: string; // digitalId or touristId
   name: string;
-  status: 'active' | 'expired';
+  status: "active" | "expired";
   safetyScore: number;
   location: { lat: number; lng: number };
-  type: 'tourist';
+  type: "tourist";
 }
 
 export interface MapZone {
   id: string;
   name: string;
   riskLevel: string;
-  type: 'zone';
-  shape: 'circle' | 'polygon';
+  type: "zone";
+  shape: "circle" | "polygon";
   coordinates: [number, number]; // lat, lng center
   radius: number; // in meters
 }
 
 export interface MapAlert {
   id: string;
-  type: 'alert';
+  type: "alert";
   status: string;
-  priority: 'high' | 'medium';
+  priority: "high" | "medium" | "critical";
   location: { lat: number; lng: number };
   locationName?: string;
 }
@@ -42,33 +42,35 @@ export interface MapRiskGrid {
 }
 
 export interface MapIncident {
-    id: string;
-    title: string;
-    type: 'incident';
-    category: string;
-    location: { lat: number; lng: number };
+  id: string;
+  title: string;
+  type: "incident";
+  category: string;
+  location: { lat: number; lng: number };
 }
 
 export interface MapOverviewResponse {
-    stats: MapStats;
-    mapData: {
-        tourists: MapTourist[];
-        zones: MapZone[];
-        activeAlerts: MapAlert[];
-        riskGrids: MapRiskGrid[];
-        incidents: MapIncident[];
-    };
+  stats: MapStats;
+  mapData: {
+    tourists: MapTourist[];
+    zones: MapZone[];
+    activeAlerts: MapAlert[];
+    riskGrids: MapRiskGrid[];
+    incidents: MapIncident[];
+  };
 }
 
 export async function fetchMapOverview(): Promise<MapOverviewResponse> {
-  const token = localStorage.getItem('token');
-  const headers = { 'Content-Type': 'application/json' };
+  const token = localStorage.getItem("token");
+  const headers = { "Content-Type": "application/json" };
   if (token) {
-    Object.assign(headers, { 'Authorization': `Bearer ${token}` });
+    Object.assign(headers, { Authorization: `Bearer ${token}` });
   }
 
-  const res = await fetch(`${API_BASE}/api/authority/map-overview`, { headers });
-  
+  const res = await fetch(`${API_BASE}/api/authority/map-overview`, {
+    headers,
+  });
+
   if (!res.ok) {
     throw new Error(`Failed to fetch map data: ${res.status}`);
   }
@@ -77,5 +79,5 @@ export async function fetchMapOverview(): Promise<MapOverviewResponse> {
   if (json.success) {
     return json as MapOverviewResponse;
   }
-  throw new Error(json.message || 'Failed to load map overview');
+  throw new Error(json.message || "Failed to load map overview");
 }
