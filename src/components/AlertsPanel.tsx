@@ -1,17 +1,16 @@
-import React, { useEffect, useState } from "react";
-import {
-  AlertTriangle,
-  Filter,
-  Wifi,
-  WifiOff,
-} from "lucide-react";
+﻿import React, { useEffect, useState } from "react";
+import { AlertTriangle, Filter, Wifi, WifiOff } from "lucide-react";
 import { SOSAlert } from "../types";
 import alertsApi from "../api/alerts";
 import { useToast } from "./ToastProvider";
 import { useSOSAlerts } from "../hooks/useSOSAlerts";
 import { AuthorityAlertCard } from "./AuthorityAlertCard";
 import { AlertDetailView } from "./AlertDetailView";
-import { formatTimeAgo, getSeverityColors, getSeverityFromScore } from "../utils/formatters";
+import {
+  formatTimeAgo,
+  getSeverityColors,
+  getSeverityFromScore,
+} from "../utils/formatters";
 import { Card, CardContent } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
@@ -25,14 +24,20 @@ const mapBackendToSOS = (a: any): SOSAlert => {
   let lng = 0;
   let lat = 0;
   if (a.location) {
-    if (Array.isArray(a.location.coordinates) && a.location.coordinates.length >= 2) {
+    if (
+      Array.isArray(a.location.coordinates) &&
+      a.location.coordinates.length >= 2
+    ) {
       lng = Number(a.location.coordinates[0]) || 0;
       lat = Number(a.location.coordinates[1]) || 0;
-    } else if (typeof a.location.lat === 'number' && typeof a.location.lng === 'number') {
+    } else if (
+      typeof a.location.lat === "number" &&
+      typeof a.location.lng === "number"
+    ) {
       lat = Number(a.location.lat) || 0;
       lng = Number(a.location.lng) || 0;
     }
-  } else if (typeof a.lat === 'number' && typeof a.lng === 'number') {
+  } else if (typeof a.lat === "number" && typeof a.lng === "number") {
     lat = Number(a.lat) || 0;
     lng = Number(a.lng) || 0;
   }
@@ -107,10 +112,13 @@ const mapBackendToSOS = (a: any): SOSAlert => {
     id: String(a.alertId || a._id || a.id || Date.now()),
     alertId: a.alertId || a._id || a.id,
     // Try multiple fields for tourist id/name (backend may use nested objects)
-    touristId:
-      String(a.touristId || tourist.id || tourist._id || a.id || a._id || ""),
+    touristId: String(
+      a.touristId || tourist.id || tourist._id || a.id || a._id || "",
+    ),
     touristName:
-      a.touristName || tourist.name || tourist.fullName ||
+      a.touristName ||
+      tourist.name ||
+      tourist.fullName ||
       // Only fallback to other names if explicitly NOT emergency contact
       (a.name !== emergencyContact?.name ? a.name : null) ||
       `Tourist ${a.touristId || tourist.id || "Unknown"}`,
@@ -118,13 +126,15 @@ const mapBackendToSOS = (a: any): SOSAlert => {
     govId: a.govId || tourist.govId || tourist.govIdHash || null, // Handle both govId and legacy hash
     phone: a.phone || tourist.phone || tourist.phoneNumber || null,
     age: a.age || tourist.age || null,
-    nationality: a.nationality || tourist.nationality || tourist.country || null,
+    nationality:
+      a.nationality || tourist.nationality || tourist.country || null,
     gender: a.gender || tourist.gender || null,
     bloodGroup: a.bloodGroup || tourist.bloodGroup || null,
     medicalConditions: a.medicalConditions || tourist.medicalConditions || null,
     allergies: a.allergies || tourist.allergies || null,
     emergencyContact: a.emergencyContact || emergencyContact || null,
-    locationName: a.locationName || (a.location && a.location.locationName) || null,
+    locationName:
+      a.locationName || (a.location && a.location.locationName) || null,
     location: {
       lat: Number(lat) || 0,
       lng: Number(lng) || 0,
@@ -141,21 +151,27 @@ const mapBackendToSOS = (a: any): SOSAlert => {
     timestamp: a.timestamp || new Date().toISOString(),
     status: a.status || "new",
     // assignedTo may be an array of strings or objects { authorityId, fullName, role }
-    assignedUnit: Array.isArray(a.assignedTo) && a.assignedTo.length
-      ? typeof a.assignedTo[0] === 'object'
-        ? (a.assignedTo[0].fullName || a.assignedTo[0].authorityId || 'Unknown Unit')
-        : String(a.assignedTo[0])
-      : a.assignedUnit,
+    assignedUnit:
+      Array.isArray(a.assignedTo) && a.assignedTo.length
+        ? typeof a.assignedTo[0] === "object"
+          ? a.assignedTo[0].fullName ||
+            a.assignedTo[0].authorityId ||
+            "Unknown Unit"
+          : String(a.assignedTo[0])
+        : a.assignedUnit,
     // Keep raw array but ensure we don't break likely string[] consumers if strictly typed?
     // For now, let's just leave assignedTo as is, complex objects will just exist in the data
     assignedTo: Array.isArray(a.assignedTo) ? a.assignedTo : [],
     // If backend returns a number (seconds), formatted it, else pass through
     responseTime:
-      typeof a.responseTime === 'number'
-        ? formatTimeAgo(new Date(Date.now() - a.responseTime * 1000)).replace("ago", "") // rough fallback or just leave as is?
-        // Better: recreate the HH:MM:SS format if it's seconds
-        // Actually, let's just allow it or simple format:
-        : a.responseTime,
+      typeof a.responseTime === "number"
+        ? formatTimeAgo(new Date(Date.now() - a.responseTime * 1000)).replace(
+            "ago",
+            "",
+          ) // rough fallback or just leave as is?
+        : // Better: recreate the HH:MM:SS format if it's seconds
+          // Actually, let's just allow it or simple format:
+          a.responseTime,
     responseDate: a.responseDate,
     contactInfo:
       emergencyContact?.phone ||
@@ -195,7 +211,9 @@ const AlertsPanel: React.FC = () => {
   // Check socket connection status
   useEffect(() => {
     const checkConnection = () => {
-      const sock = (window as any).getAuthoritySocket ? (window as any).getAuthoritySocket() : null;
+      const sock = (window as any).getAuthoritySocket
+        ? (window as any).getAuthoritySocket()
+        : null;
       setIsSocketConnected(sock?.connected || false);
     };
 
@@ -221,14 +239,19 @@ const AlertsPanel: React.FC = () => {
         responseTimeVal = diff;
       }
 
-      console.log("👮 Assigning unit to alert:", alertId, "Response Time (seconds):", responseTimeVal);
-      const updatedRaw = await alertsApi.assignUnit(alertId, { responseTime: responseTimeVal });
+      console.log(
+        "👮 Assigning unit to alert:",
+        alertId,
+        "Response Time (seconds):",
+        responseTimeVal,
+      );
+      const updatedRaw = await alertsApi.assignUnit(alertId, {
+        responseTime: responseTimeVal,
+      });
       const updated = mapBackendToSOS(updatedRaw);
 
       showToast("Unit assigned successfully", "success");
-      setAlerts((prev) =>
-        prev.map((a) => (a.id === alertId ? updated : a))
-      );
+      setAlerts((prev) => prev.map((a) => (a.id === alertId ? updated : a)));
     } catch (err: any) {
       console.error("Failed to assign unit:", err);
       showToast(err.message || "Failed to assign unit", "error");
@@ -252,18 +275,15 @@ const AlertsPanel: React.FC = () => {
     }
   };
 
-
-
-
   const filteredAlerts =
     filter === "all"
       ? alerts
       : alerts.filter((alert) => {
-        if (filter === "assigned") {
-          return alert.status === "assigned" || alert.status === "responding";
-        }
-        return alert.status === filter;
-      });
+          if (filter === "assigned") {
+            return alert.status === "assigned" || alert.status === "responding";
+          }
+          return alert.status === filter;
+        });
   const newAlertsCount = alerts.filter(
     (alert) => alert.status === "new",
   ).length;
@@ -275,37 +295,31 @@ const AlertsPanel: React.FC = () => {
       setLoading(true);
       setError(null);
       try {
-        let data;
-        let mapped;
+        // Always fetch both standard and assigned alerts to maintain consistent stats
+        const [standardData, assignedData] = await Promise.all([
+          alertsApi.fetchAlerts(),
+          alertsApi.fetchRespondingAlerts().catch(() => []),
+        ]);
 
-        if (filter === "assigned") {
-          data = await alertsApi.fetchRespondingAlerts();
-          mapped = (Array.isArray(data) ? data : []).map(mapBackendToSOS);
-          // When fetching assigned, we replace the view or merge?
-          // User request implies this is THE route for assigned alerts.
-          // We can merge with existing 'new' alerts to keep them visible if needed, 
-          // or just switch the view. For now, let's update the main alerts list 
-          // but arguably we should manage 'assigned' separately or just re-fetch all.
-          // Strategy: Fetch all standard alerts + assigned details and merge.
-          const standardData = await alertsApi.fetchAlerts();
-          const standardMapped = (Array.isArray(standardData) ? standardData : []).map(mapBackendToSOS);
+        const standardMapped = (
+          Array.isArray(standardData) ? standardData : []
+        ).map(mapBackendToSOS);
+        const assignedMapped = (
+          Array.isArray(assignedData) ? assignedData : []
+        ).map(mapBackendToSOS);
 
-          // Merge: use responding detail if available, else standard
-          const merged = [...standardMapped];
-          mapped.forEach(assignedAlert => {
-            const idx = merged.findIndex(a => a.id === assignedAlert.id);
-            if (idx >= 0) {
-              merged[idx] = assignedAlert;
-            } else {
-              merged.push(assignedAlert);
-            }
-          });
-          setAlerts(merged);
-        } else {
-          data = await alertsApi.fetchAlerts();
-          mapped = (Array.isArray(data) ? data : []).map(mapBackendToSOS);
-          setAlerts(mapped);
-        }
+        // Merge: use responding detail (assignedData) if available as it's the "truth" for assignments,
+        // otherwise use standard data
+        const merged = [...standardMapped];
+        assignedMapped.forEach((assignedAlert) => {
+          const idx = merged.findIndex((a) => a.id === assignedAlert.id);
+          if (idx >= 0) {
+            merged[idx] = assignedAlert;
+          } else {
+            merged.push(assignedAlert);
+          }
+        });
+        setAlerts(merged);
       } catch (e: any) {
         setError(e?.message || "Failed to load alerts");
       } finally {
@@ -318,7 +332,9 @@ const AlertsPanel: React.FC = () => {
     // subscribe to live updates
     try {
       subId = alertsApi.subscribeToAlerts((payload: any[]) => {
-        console.log("[AlertsPanel] ðŸ“¨ Received alert update via subscription");
+        console.log(
+          "[AlertsPanel] ðŸ“¨ Received alert update via subscription",
+        );
         console.log("[AlertsPanel] Payload:", payload);
 
         try {
@@ -326,25 +342,39 @@ const AlertsPanel: React.FC = () => {
           const incomingRaw = Array.isArray(payload) ? payload : [payload];
           const incomingMapped = incomingRaw.map(mapBackendToSOS);
 
-          console.log("[AlertsPanel] Mapped alerts:", incomingMapped.map(a => ({ id: a.id, name: a.touristName })));
+          console.log(
+            "[AlertsPanel] Mapped alerts:",
+            incomingMapped.map((a) => ({ id: a.id, name: a.touristName })),
+          );
 
           // If we received a single alert, merge it into existing list (update by id or prepend).
           if (incomingMapped.length === 1) {
             const inc = incomingMapped[0];
 
             // Validate the alert has a proper ID to prevent duplicates
-            if (!inc.id || inc.id === 'undefined') {
-              console.error("[AlertsPanel] âŒ Alert missing valid ID, skipping:", inc);
+            if (!inc.id || inc.id === "undefined") {
+              console.error(
+                "[AlertsPanel] âŒ Alert missing valid ID, skipping:",
+                inc,
+              );
               return;
             }
 
-            console.log(`[AlertsPanel] âœ… Processing alert ID:`, inc.id, "Tourist:", inc.touristName);
+            console.log(
+              `[AlertsPanel] âœ… Processing alert ID:`,
+              inc.id,
+              "Tourist:",
+              inc.touristName,
+            );
 
             setAlerts((prev) => {
               // update existing alert if present
               const idx = prev.findIndex((a) => a.id === inc.id);
               if (idx !== -1) {
-                console.log(`[AlertsPanel] Updating existing alert at index ${idx}:`, inc.id);
+                console.log(
+                  `[AlertsPanel] Updating existing alert at index ${idx}:`,
+                  inc.id,
+                );
                 const copy = [...prev];
                 copy[idx] = { ...copy[idx], ...inc };
                 return copy;
@@ -361,7 +391,11 @@ const AlertsPanel: React.FC = () => {
             }
           } else {
             // multi-alert payloads replace the current list (initial load or bulk update)
-            console.log("[AlertsPanel] Replacing entire alert list with", incomingMapped.length, "alerts");
+            console.log(
+              "[AlertsPanel] Replacing entire alert list with",
+              incomingMapped.length,
+              "alerts",
+            );
             setAlerts(incomingMapped);
           }
         } catch (e) {
@@ -381,14 +415,7 @@ const AlertsPanel: React.FC = () => {
     return () => {
       if (subId) alertsApi.unsubscribe(subId);
     };
-  }, [
-    filter,
-    // Re-run subscription only if filter changes? 
-    // Actually alertsApi probably handles deduping, but for safety let's leave deps as is.
-  ]);
-
-  // Deep Link Handling - DISABLED to prevent auto-opening cards
-  // User can manually open cards by clicking on them
+  }, []);
   // useEffect(() => {
   //   const params = new URLSearchParams(location.search);
   //   const openAlertId = params.get('openAlertId');
@@ -403,9 +430,9 @@ const AlertsPanel: React.FC = () => {
 
   // Request notification permission on mount
   useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().then(permission => {
-        console.log('[AlertsPanel] Notification permission:', permission);
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission().then((permission) => {
+        console.log("[AlertsPanel] Notification permission:", permission);
       });
     }
   }, []);
@@ -424,10 +451,14 @@ const AlertsPanel: React.FC = () => {
         </div>
         <div className="flex items-center space-x-4 mt-4 sm:mt-0">
           {/* Socket Connection Status */}
-          <Badge variant={isSocketConnected ? "default" : "destructive"} className={`flex items-center space-x-2 px-3 py-1.5 ${isSocketConnected
-            ? "bg-green-100 text-green-800 hover:bg-green-100"
-            : "bg-red-100 text-red-800 hover:bg-red-100"
-            }`}>
+          <Badge
+            variant={isSocketConnected ? "default" : "destructive"}
+            className={`flex items-center space-x-2 px-3 py-1.5 ${
+              isSocketConnected
+                ? "bg-green-100 text-green-800 hover:bg-green-100"
+                : "bg-red-100 text-red-800 hover:bg-red-100"
+            }`}
+          >
             {isSocketConnected ? (
               <>
                 <Wifi className="h-4 w-4" />
@@ -442,7 +473,10 @@ const AlertsPanel: React.FC = () => {
           </Badge>
 
           {newAlertsCount > 0 && (
-            <Badge variant="destructive" className="bg-red-100 text-red-800 hover:bg-red-100 px-3 py-1.5 flex items-center justify-center h-8">
+            <Badge
+              variant="destructive"
+              className="bg-red-100 text-red-800 hover:bg-red-100 px-3 py-1.5 flex items-center justify-center h-8"
+            >
               {newAlertsCount} New Alert{newAlertsCount > 1 ? "s" : ""}
             </Badge>
           )}
@@ -466,7 +500,11 @@ const AlertsPanel: React.FC = () => {
         <Card className="text-center bg-blue-50 border-blue-200">
           <CardContent className="p-4">
             <p className="text-2xl font-bold text-blue-600">
-              {alerts.filter((a) => a.status === "assigned" || a.status === "responding").length}
+              {
+                alerts.filter(
+                  (a) => a.status === "assigned" || a.status === "responding",
+                ).length
+              }
             </p>
             <p className="text-sm text-blue-700">Assigned</p>
           </CardContent>
@@ -491,19 +529,25 @@ const AlertsPanel: React.FC = () => {
 
       {/* Latest Alert Banner */}
       {latestAlert && (
-        <Card className={`border-2 animate-pulse ${getSeverityColors(latestAlert.severity || getSeverityFromScore(latestAlert.safetyScore || 50)).bg} ${getSeverityColors(latestAlert.severity || getSeverityFromScore(latestAlert.safetyScore || 50)).border}`}>
+        <Card
+          className={`border-2 animate-pulse ${getSeverityColors(latestAlert.severity || getSeverityFromScore(latestAlert.safetyScore || 50)).bg} ${getSeverityColors(latestAlert.severity || getSeverityFromScore(latestAlert.safetyScore || 50)).border}`}
+        >
           <CardContent className="p-6">
             <div className="flex items-start justify-between">
-              <div className={`flex-1 ${getSeverityColors(latestAlert.severity || getSeverityFromScore(latestAlert.safetyScore || 50)).text}`}>
+              <div
+                className={`flex-1 ${getSeverityColors(latestAlert.severity || getSeverityFromScore(latestAlert.safetyScore || 50)).text}`}
+              >
                 <h2 className="text-2xl font-bold mb-2 flex items-center">
                   <AlertTriangle className="h-6 w-6 mr-2" />
                   NEW SOS ALERT
                 </h2>
                 <p className="text-lg mb-1">
-                  <strong>Location:</strong> {latestAlert.location.locationName || 'Unknown'}
+                  <strong>Location:</strong>{" "}
+                  {latestAlert.location.locationName || "Unknown"}
                 </p>
                 <p className="text-sm opacity-90">
-                  Tourist ID: {latestAlert.touristId} | Time: {new Date(latestAlert.timestamp).toLocaleTimeString()}
+                  Tourist ID: {latestAlert.touristId} | Time:{" "}
+                  {new Date(latestAlert.timestamp).toLocaleTimeString()}
                 </p>
               </div>
               <Button
@@ -527,7 +571,10 @@ const AlertsPanel: React.FC = () => {
               <TabsTrigger value="new" className="relative">
                 New
                 {newAlertsCount > 0 && (
-                  <Badge variant="destructive" className="ml-2 bg-red-500 text-white px-2 py-0 text-xs">
+                  <Badge
+                    variant="destructive"
+                    className="ml-2 bg-red-500 text-white px-2 py-0 text-xs"
+                  >
                     {newAlertsCount}
                   </Badge>
                 )}
@@ -558,8 +605,9 @@ const AlertsPanel: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {filteredAlerts.map((alert) => {
           // Highlight logic: Alert is less than 3 minutes old AND status is 'new'
-          const isFresh = (Date.now() - new Date(alert.timestamp).getTime()) < 3 * 60 * 1000;
-          const shouldHighlight = isFresh && alert.status === 'new';
+          const isFresh =
+            Date.now() - new Date(alert.timestamp).getTime() < 3 * 60 * 1000;
+          const shouldHighlight = isFresh && alert.status === "new";
 
           return (
             <AuthorityAlertCard
