@@ -27,3 +27,5 @@ dist-ssr
 authority-test.js
 
 temp_insert.txt
+
+package-lock.json
