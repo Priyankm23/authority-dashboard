@@ -91,13 +91,16 @@ export async function fetchAlerts(): Promise<Alert[]> {
 }
 
 export async function fetchRespondingAlerts(): Promise<Alert[]> {
-  const token = typeof localStorage !== "undefined" ? localStorage.getItem("token") : null;
+  const token =
+    typeof localStorage !== "undefined" ? localStorage.getItem("token") : null;
   const headers: HeadersInit = {
     "Content-Type": "application/json",
   };
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  const res = await fetch(`${API_BASE}/api/authority/alerts/responding`, { headers });
+  const res = await fetch(`${API_BASE}/api/authority/alerts/responding`, {
+    headers,
+  });
   if (!res.ok) {
     throw new Error(`Failed to fetch responding alerts: ${res.status}`);
   }
@@ -107,7 +110,10 @@ export async function fetchRespondingAlerts(): Promise<Alert[]> {
   return [];
 }
 
-export async function assignUnit(alertId: string, payload?: { responseTime?: string | number }): Promise<Alert> {
+export async function assignUnit(
+  alertId: string,
+  payload?: { responseTime?: string | number },
+): Promise<Alert> {
   const token = localStorage.getItem("token");
   const headers: HeadersInit = {
     "Content-Type": "application/json",
@@ -201,11 +207,21 @@ export function subscribeToAlerts(callback: (alerts: Alert[]) => void): string {
           id: item.alertId || item.id || item._id,
           alertId: item.alertId || item.id || item._id,
           // Ensure tourist object exists for compatibility
-          tourist: item.tourist || { id: item.touristId, name: item.touristName },
+          tourist: item.tourist || {
+            id: item.touristId,
+            name: item.touristName,
+          },
         }));
 
-        console.log("[alerts] Enriched payload:", JSON.stringify(enriched, null, 2));
-        console.log("[alerts] 📤 Notifying", subscribers.length, "subscriber(s)");
+        console.log(
+          "[alerts] Enriched payload:",
+          JSON.stringify(enriched, null, 2),
+        );
+        console.log(
+          "[alerts] 📤 Notifying",
+          subscribers.length,
+          "subscriber(s)",
+        );
         notifyAll(enriched as Alert[]);
       } catch (e) {
         console.error("[alerts] ❌ Error handling socket alert:", e);
@@ -213,8 +229,8 @@ export function subscribeToAlerts(callback: (alerts: Alert[]) => void): string {
     };
 
     console.log("[alerts] Attaching socket handler for 'newSOSAlert' event");
-    // We *always* try to attach the handler. 
-    // The previous check `if (sock)` was causing the race condition because 
+    // We *always* try to attach the handler.
+    // The previous check `if (sock)` was causing the race condition because
     // on login sock might be null for a fraction of a second.
     onAuthorityEvent("newSOSAlert", socketHandler!);
 
@@ -224,7 +240,9 @@ export function subscribeToAlerts(callback: (alerts: Alert[]) => void): string {
       console.log("[alerts] Socket connected:", sock.connected);
       console.log("[alerts] Socket ID:", sock.id);
     } else {
-      console.log("[alerts] ⚠️ Socket not immediately available, starting polling fallback");
+      console.log(
+        "[alerts] ⚠️ Socket not immediately available, starting polling fallback",
+      );
       startPolling();
     }
   }
@@ -247,10 +265,42 @@ export function unsubscribe(id: string) {
   }
 }
 
+export async function fetchPendingAlerts(): Promise<Alert[]> {
+  const token = localStorage.getItem("token");
+  const headers: HeadersInit = {
+    "Content-Type": "application/json",
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/api/authority/alerts/pending`, {
+      headers,
+    });
+    if (!res.ok) {
+      console.error(`Failed to fetch pending alerts: ${res.status}`);
+      return [];
+    }
+    const data = await res.json();
+
+    // Handle different response formats
+    if (data && Array.isArray(data.alerts)) return data.alerts as Alert[];
+    if (data && Array.isArray(data)) return data as Alert[];
+    if (data && data.alert) return [data.alert] as Alert[];
+
+    return [];
+  } catch (error) {
+    console.error("Error fetching pending alerts:", error);
+    return [];
+  }
+}
+
 export default {
   fetchAlerts,
   fetchRespondingAlerts,
   assignUnit,
+  fetchPendingAlerts,
   subscribeToAlerts,
   unsubscribe,
 };

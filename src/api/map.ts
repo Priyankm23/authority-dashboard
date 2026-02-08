@@ -60,6 +60,58 @@ export interface MapOverviewResponse {
   };
 }
 
+// Styled Zones Types
+export interface VisualStyle {
+  zoneType: "danger_zone" | "risk_grid" | "geofence";
+  borderStyle: "solid" | "dashed" | "dotted";
+  borderWidth: number;
+  fillOpacity: number;
+  fillPattern: string;
+  iconType: string;
+  renderPriority: number;
+  gridSize?: number;
+  color?: string;
+}
+
+export interface DangerZone {
+  _id: string;
+  name: string;
+  type: string;
+  coords: [number, number];
+  radiusKm?: number;
+  polygonCoords?: [number, number][];
+  category?: string;
+  state?: string;
+  riskLevel: string;
+  visualStyle: VisualStyle;
+}
+
+export interface RiskGrid {
+  _id: string;
+  gridId: string;
+  gridName: string;
+  location: {
+    type: string;
+    coordinates: [number, number];
+  };
+  riskScore: number;
+  riskLevel: string;
+  lastUpdated: string;
+  reasons?: Array<{
+    type: "sos_alert" | "incident";
+    title: string;
+    severity: number;
+    timestamp: string;
+  }>;
+  visualStyle: VisualStyle;
+}
+
+export interface StyledZonesResponse {
+  dangerZones: DangerZone[];
+  riskGrids: RiskGrid[];
+  geofences: any[]; // We won't use these
+}
+
 export async function fetchMapOverview(): Promise<MapOverviewResponse> {
   const token = localStorage.getItem("token");
   const headers = { "Content-Type": "application/json" };
@@ -80,4 +132,15 @@ export async function fetchMapOverview(): Promise<MapOverviewResponse> {
     return json as MapOverviewResponse;
   }
   throw new Error(json.message || "Failed to load map overview");
+}
+
+export async function fetchStyledZones(): Promise<StyledZonesResponse> {
+  const res = await fetch(`${API_BASE}/api/geofence/all-zones-styled`);
+
+  if (!res.ok) {
+    throw new Error(`Failed to fetch styled zones: ${res.status}`);
+  }
+
+  const json = await res.json();
+  return json as StyledZonesResponse;
 }

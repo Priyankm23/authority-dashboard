@@ -76,7 +76,9 @@ export function createAuthoritySocket(userId: string) {
   authoritySocket.on("connect_error", (error) => {
     console.error("=".repeat(60));
     console.error("[SocketClient] ❌ Connection ERROR:", error.message);
-    console.error("[SocketClient] Please verify backend is running and CORS is configured");
+    console.error(
+      "[SocketClient] Please verify backend is running and CORS is configured",
+    );
     console.error("=".repeat(60));
   });
 
@@ -138,4 +140,42 @@ export function offAuthorityEvent(
 
 export function getAuthoritySocket() {
   return authoritySocket;
+}
+
+// Broadcast alert to tourists
+export function broadcastAlertToTourists(alertData: any): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const socket = getAuthoritySocket();
+
+    if (!socket || !socket.connected) {
+      reject(new Error("Socket not connected"));
+      return;
+    }
+
+    // Set up listeners
+    const successHandler = () => {
+      socket.off("broadcastSuccess", successHandler);
+      socket.off("broadcastError", errorHandler);
+      resolve();
+    };
+
+    const errorHandler = (error: any) => {
+      socket.off("broadcastSuccess", successHandler);
+      socket.off("broadcastError", errorHandler);
+      reject(new Error(error.message || "Broadcast failed"));
+    };
+
+    socket.once("broadcastSuccess", successHandler);
+    socket.once("broadcastError", errorHandler);
+
+    // Emit the broadcast
+    socket.emit("authorityBroadcast", alertData);
+
+    // Timeout after 10 seconds and assume success
+    setTimeout(() => {
+      socket.off("broadcastSuccess", successHandler);
+      socket.off("broadcastError", errorHandler);
+      resolve();
+    }, 10000);
+  });
 }
