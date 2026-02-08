@@ -6,6 +6,7 @@ import { useToast } from "./ToastProvider";
 import { useSOSAlerts } from "../hooks/useSOSAlerts";
 import { AuthorityAlertCard } from "./AuthorityAlertCard";
 import { AlertDetailView } from "./AlertDetailView";
+import { CreateAlertModal } from "./CreateAlertModal";
 import {
   formatTimeAgo,
   getSeverityColors,
@@ -201,6 +202,9 @@ const AlertsPanel: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { showToast } = useToast();
+
+  // Modal state for creating alerts
+  const [isCreateAlertOpen, setIsCreateAlertOpen] = useState(false);
 
   // Use the SOS alerts hook for real-time updates (latestAlert only)
   const { latestAlert } = useSOSAlerts();
@@ -480,7 +484,11 @@ const AlertsPanel: React.FC = () => {
               {newAlertsCount} New Alert{newAlertsCount > 1 ? "s" : ""}
             </Badge>
           )}
-          <Button variant="destructive" className="flex items-center space-x-2">
+          <Button
+            variant="destructive"
+            className="flex items-center space-x-2"
+            onClick={() => setIsCreateAlertOpen(true)}
+          >
             <AlertTriangle className="h-4 w-4" />
             <span>Create Alert</span>
           </Button>
@@ -629,6 +637,18 @@ const AlertsPanel: React.FC = () => {
           onRespond={handleRespond}
         />
       )}
+
+      {/* Create Alert Modal */}
+      <CreateAlertModal
+        isOpen={isCreateAlertOpen}
+        onClose={() => setIsCreateAlertOpen(false)}
+        onSuccess={() => {
+          showToast(
+            "✅ Alert broadcasted successfully to tourists!",
+            "success",
+          );
+        }}
+      />
 
       {filteredAlerts.length === 0 && (
         <div className="text-center py-12">
