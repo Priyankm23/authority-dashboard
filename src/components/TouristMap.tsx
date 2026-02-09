@@ -33,6 +33,7 @@ import {
   StyledZonesResponse,
   DangerZone,
   RiskGrid,
+  fetchLatestSafetyUsers,
 } from "../api/map";
 import {
   onAuthorityEvent,
@@ -64,13 +65,9 @@ const getCircleCoordinates = (
   return [coordinates];
 };
 
-// SVG Patterns as Data URIs for Mapbox
-// Simple black patterns with transparent background
-const PATTERNS = {
-  "diagonal-stripes":
-    "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPHBhdGggZD0iTS0xLDEgbDIsLTIgTTAsMTAgbDEwLC0xMCBNOSwxMSBsMiwtMiIgc3Ryb2tlPSJibGFjayIgc3Ryb2tlLXdpZHRoPSIxIi8+Cjwvc3ZnPg==",
-  dots: "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPGNpcmNsZSBjeD0iNSIgY3k9IjUiIHI9IjEiIGZpbGw9ImJsYWNrIi8+Cjwvc3ZnPg==",
-};
+// Pattern overlays are intentionally disabled because Mapbox GL JS does not
+// support SVG in loadImage, and unsupported pattern assets break rendering logs.
+const ENABLE_PATTERN_OVERLAYS = false;
 
 type LayerVisibility = {
   sos: boolean;
@@ -98,22 +95,105 @@ const TouristMap: React.FC = () => {
     sos: true,
     incidents: true,
     zones: true,
-    activeTourists: false,
-    inactiveTourists: false,
+    activeTourists: true,
+    inactiveTourists: true,
   });
 
   const mapRef = useRef<MapRef>(null);
   const prevConnectionRef = useRef<boolean>(false);
+  const hasAutoFitTouristsRef = useRef<boolean>(false);
+
+  const mergeSafetyUsers = useCallback(
+    (
+      mapResult: MapOverviewResponse,
+      safetyUsers: Array<{
+        userId: string;
+        location: { lat: number; lng: number };
+        safetyScore: number;
+      }>,
+    ): MapOverviewResponse => {
+      const existingById = new globalThis.Map(
+        mapResult.mapData.tourists.map((tourist) => [tourist.id, tourist]),
+      );
+
+      const updatedBySafety = new globalThis.Map<string, any>();
+
+      safetyUsers.forEach((row) => {
+        const existing = existingById.get(row.userId);
+        updatedBySafety.set(row.userId, {
+          id: row.userId,
+          name: existing?.name || row.userId,
+          status: existing?.status || ("active" as const),
+          safetyScore: row.safetyScore ?? existing?.safetyScore ?? 0,
+          location: {
+            lat: row.location.lat,
+            lng: row.location.lng,
+          },
+          type: "tourist" as const,
+        });
+      });
+
+      // Preserve existing map-overview tourists if they are not present
+      // in safety latest feed, and overwrite with safety feed where available.
+      const mergedTourists = mapResult.mapData.tourists
+        .map((tourist) => updatedBySafety.get(tourist.id) || tourist)
+        .concat(
+          Array.from(updatedBySafety.values()).filter(
+            (tourist) =>
+              !mapResult.mapData.tourists.some(
+                (existingTourist) => existingTourist.id === tourist.id,
+              ),
+          ),
+        );
+
+      return {
+        ...mapResult,
+        mapData: {
+          ...mapResult.mapData,
+          tourists: mergedTourists,
+        },
+      };
+    },
+    [],
+  );
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [mapResult, zonesResult] = await Promise.all([
-        fetchMapOverview(),
-        fetchStyledZones(),
+      const emptyMapResult: MapOverviewResponse = {
+        stats: { totalTourists: 0, activeAlerts: 0, highRiskZones: 0, responseUnits: 0 },
+        mapData: { tourists: [], zones: [], activeAlerts: [], riskGrids: [], incidents: [] },
+      };
+
+      const [mapResult, zonesResult, latestUsers] = await Promise.all([
+        fetchMapOverview().catch((e) => {
+          console.warn("[Map] fetchMapOverview failed, using empty:", e);
+          return emptyMapResult;
+        }),
+        fetchStyledZones().catch((e) => {
+          console.warn("[Map] fetchStyledZones failed:", e);
+          return null;
+        }),
+        fetchLatestSafetyUsers().catch((e) => {
+          console.warn("[Map] fetchLatestSafetyUsers failed:", e);
+          return [] as Awaited<ReturnType<typeof fetchLatestSafetyUsers>>;
+        }),
       ]);
-      setData(mapResult);
-      setStyledZones(zonesResult);
+      console.log(
+        "[Map] Source counts:",
+        "mapOverviewTourists=",
+        mapResult.mapData.tourists.length,
+        "latestSafetyUsers=",
+        latestUsers.length,
+      );
+      const mergedMapResult =
+        latestUsers.length > 0 ? mergeSafetyUsers(mapResult, latestUsers) : mapResult;
+      console.log(
+        "[Map] Render tourists count:",
+        mergedMapResult.mapData.tourists.length,
+      );
+      setData(mergedMapResult);
+      if (zonesResult) setStyledZones(zonesResult);
     } catch (e) {
       console.error("Failed to load map data", e);
     } finally {
@@ -190,6 +270,28 @@ const TouristMap: React.FC = () => {
 
   useEffect(() => {
     fetchData();
+
+    const refreshSafetyUsers = async () => {
+      try {
+        const latestUsers = await fetchLatestSafetyUsers();
+        console.log("[Map] Safety poll: latestUsers =", latestUsers.length);
+        if (!latestUsers.length) return;
+
+        setData((prev) => {
+          const base: MapOverviewResponse = prev ?? {
+            stats: { totalTourists: 0, activeAlerts: 0, highRiskZones: 0, responseUnits: 0 },
+            mapData: { tourists: [], zones: [], activeAlerts: [], riskGrids: [], incidents: [] },
+          };
+          const merged = mergeSafetyUsers(base, latestUsers);
+          console.log("[Map] Safety merge: tourists =", merged.mapData.tourists.length);
+          return merged;
+        });
+      } catch (error) {
+        console.warn("Failed to refresh safety latest users", error);
+      }
+    };
+
+    const safetyPollingInterval = setInterval(refreshSafetyUsers, 30000);
 
     // Socket Connection Status
     const checkConnection = () => {
@@ -404,12 +506,13 @@ const TouristMap: React.FC = () => {
 
     return () => {
       clearInterval(interval);
+      clearInterval(safetyPollingInterval);
       offAuthorityEvent("newSOSAlert", handleNewSOSAlert);
       offAuthorityEvent("riskGridUpdated", handleRiskGridUpdate);
       offAuthorityEvent("incidentReported", handleIncidentReported);
       offAuthorityEvent("dangerZoneAdded", handleDangerZoneAdded);
     };
-  }, []);
+  }, [mergeSafetyUsers]);
 
   const toggleLayer = (key: keyof LayerVisibility) => {
     setLayers((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -417,11 +520,34 @@ const TouristMap: React.FC = () => {
 
   // -- GeoJSON Transformations --
 
+  const EMPTY_FC = useMemo(
+    () => ({ type: "FeatureCollection" as const, features: [] as any[] }),
+    [],
+  );
+
   const touristSource = useMemo(() => {
-    if (!data) return null;
+    if (!data) return EMPTY_FC;
+    const validTourists = data.mapData.tourists.filter((tourist) => {
+      const lat = Number(tourist.location?.lat);
+      const lng = Number(tourist.location?.lng);
+      return (
+        Number.isFinite(lat) &&
+        Number.isFinite(lng) &&
+        lat >= -90 &&
+        lat <= 90 &&
+        lng >= -180 &&
+        lng <= 180
+      );
+    });
+    console.log(
+      "[Map] touristSource valid/total =",
+      validTourists.length,
+      "/",
+      data.mapData.tourists.length,
+    );
     return {
-      type: "FeatureCollection",
-      features: data.mapData.tourists.map((t) => ({
+      type: "FeatureCollection" as const,
+      features: validTourists.map((t) => ({
         type: "Feature",
         properties: {
           id: t.id,
@@ -436,6 +562,44 @@ const TouristMap: React.FC = () => {
         },
       })),
     };
+  }, [data]);
+
+  useEffect(() => {
+    if (!data?.mapData?.tourists?.length) return;
+    if (hasAutoFitTouristsRef.current) return;
+    const map = mapRef.current?.getMap?.();
+    if (!map) return;
+
+    const tourists = data.mapData.tourists
+      .map((tourist) => ({
+        lat: Number(tourist.location?.lat),
+        lng: Number(tourist.location?.lng),
+      }))
+      .filter(
+        (point) =>
+          Number.isFinite(point.lat) &&
+          Number.isFinite(point.lng) &&
+          point.lat >= -90 &&
+          point.lat <= 90 &&
+          point.lng >= -180 &&
+          point.lng <= 180,
+      );
+
+    if (!tourists.length) return;
+
+    const lats = tourists.map((point) => point.lat);
+    const lngs = tourists.map((point) => point.lng);
+    const bounds: [[number, number], [number, number]] = [
+      [Math.min(...lngs), Math.min(...lats)],
+      [Math.max(...lngs), Math.max(...lats)],
+    ];
+
+    map.fitBounds(bounds, {
+      padding: 80,
+      maxZoom: 13,
+      duration: 800,
+    });
+    hasAutoFitTouristsRef.current = true;
   }, [data]);
 
   const alertSource = useMemo(() => {
@@ -635,17 +799,7 @@ const TouristMap: React.FC = () => {
     }
   }, []);
 
-  const onMapLoad = useCallback((event: any) => {
-    const map = event.target;
-    // Load patterns
-    Object.entries(PATTERNS).forEach(([name, url]) => {
-      if (map.hasImage(name)) return;
-      map.loadImage(url, (error: any, image: any) => {
-        if (error) console.error("Error loading pattern:", error);
-        if (image) map.addImage(name, image);
-      });
-    });
-  }, []);
+  const onMapLoad = useCallback(() => {}, []);
 
   if (!MAPBOX_TOKEN) {
     return (
@@ -715,7 +869,7 @@ const TouristMap: React.FC = () => {
             mapboxAccessToken={MAPBOX_TOKEN}
             onLoad={onMapLoad}
             interactiveLayerIds={[
-              ...(touristSource &&
+              ...(touristSource.features.length > 0 &&
               (layers.activeTourists || layers.inactiveTourists)
                 ? ["tourist-circles", "tourist-clusters"]
                 : []),
@@ -726,10 +880,10 @@ const TouristMap: React.FC = () => {
                 ? ["incident-points"]
                 : []),
               ...(dangerZoneSource && layers.zones
-                ? ["danger-zone-polygons", "danger-zone-pattern"]
+                ? ["danger-zone-polygons"]
                 : []),
               ...(riskGridSource && layers.zones
-                ? ["risk-grid-fill", "risk-grid-pattern"]
+                ? ["risk-grid-fill"]
                 : []),
             ]}
             onClick={onMapClick}
@@ -774,16 +928,17 @@ const TouristMap: React.FC = () => {
                   }}
                 />
 
-                {/* 2. Pattern Layer (Overlay) */}
-                <Layer
-                  id="danger-zone-pattern"
-                  type="fill"
-                  filter={["has", "fillPattern"]}
-                  paint={{
-                    "fill-pattern": ["get", "fillPattern"],
-                    "fill-opacity": ["get", "fillOpacity"],
-                  }}
-                />
+                {ENABLE_PATTERN_OVERLAYS && (
+                  <Layer
+                    id="danger-zone-pattern"
+                    type="fill"
+                    filter={["has", "fillPattern"]}
+                    paint={{
+                      "fill-pattern": ["get", "fillPattern"],
+                      "fill-opacity": ["get", "fillOpacity"],
+                    }}
+                  />
+                )}
 
                 <Layer
                   id="danger-zone-border-solid"
@@ -896,16 +1051,17 @@ const TouristMap: React.FC = () => {
                   }}
                 />
 
-                {/* 2. Pattern Layer (Overlay) */}
-                <Layer
-                  id="risk-grid-pattern"
-                  type="fill"
-                  filter={["has", "fillPattern"]}
-                  paint={{
-                    "fill-pattern": ["get", "fillPattern"],
-                    "fill-opacity": ["get", "fillOpacity"],
-                  }}
-                />
+                {ENABLE_PATTERN_OVERLAYS && (
+                  <Layer
+                    id="risk-grid-pattern"
+                    type="fill"
+                    filter={["has", "fillPattern"]}
+                    paint={{
+                      "fill-pattern": ["get", "fillPattern"],
+                      "fill-opacity": ["get", "fillOpacity"],
+                    }}
+                  />
+                )}
 
                 {/* Risk Grid Borders - Solid */}
                 <Layer
@@ -1004,92 +1160,132 @@ const TouristMap: React.FC = () => {
               </Source>
             )}
 
-            {/* TOURISTS */}
-            {touristSource && (
-              <Source
-                id="tourists"
-                type="geojson"
-                data={touristSource as any}
-                cluster={true}
-                clusterRadius={50}
-              >
-                {loading && (
-                  <Layer
-                    id="hidden"
-                    type="background"
-                    paint={{ "background-opacity": 0 }}
-                  />
-                )}
-                {/* ^ Trick to ensure source is loaded */}
-
-                {(layers.activeTourists || layers.inactiveTourists) && (
-                  <>
-                    <Layer
-                      id="tourist-clusters"
-                      type="circle"
-                      filter={["has", "point_count"]}
-                      paint={{
-                        "circle-color": "#3b82f6",
-                        "circle-radius": [
-                          "step",
-                          ["get", "point_count"],
-                          15,
-                          10,
-                          20,
-                          50,
-                          25,
-                        ],
-                        "circle-opacity": 0.8,
-                        "circle-stroke-width": 2,
-                        "circle-stroke-color": "#fff",
-                      }}
-                    />
-                    <Layer
-                      id="tourist-cluster-count"
-                      type="symbol"
-                      filter={["has", "point_count"]}
-                      layout={{
-                        "text-field": "{point_count_abbreviated}",
-                        "text-font": [
-                          "DIN Offc Pro Medium",
-                          "Arial Unicode MS Bold",
-                        ],
-                        "text-size": 12,
-                      }}
-                      paint={{ "text-color": "#ffffff" }}
-                    />
-                    {/* Filter Active/Inactive based on Layer State */}
-                    <Layer
-                      id="tourist-circles"
-                      type="circle"
-                      filter={[
-                        "all",
-                        ["!", ["has", "point_count"]],
-                        [
-                          "match",
-                          ["get", "status"],
-                          "active",
-                          layers.activeTourists,
-                          layers.inactiveTourists, // default to inactive setting
-                        ],
-                      ]}
-                      paint={{
-                        "circle-color": [
-                          "match",
-                          ["get", "status"],
-                          "active",
-                          "#10b981",
-                          "#9ca3af",
-                        ],
-                        "circle-radius": 5,
-                        "circle-stroke-width": 1,
-                        "circle-stroke-color": "#fff",
-                      }}
-                    />
-                  </>
-                )}
-              </Source>
-            )}
+            {/* TOURISTS – Source AND Layers are always mounted to avoid
+                Mapbox "missing required property source" timing errors.
+                Visibility is controlled via layout.visibility instead. */}
+            <Source
+              id="tourists"
+              type="geojson"
+              data={touristSource as any}
+              cluster={true}
+              clusterMaxZoom={14}
+              clusterRadius={50}
+            >
+              <Layer
+                id="tourist-clusters"
+                type="circle"
+                source="tourists"
+                filter={["has", "point_count"]}
+                layout={{
+                  visibility:
+                    touristSource.features.length > 0 &&
+                    (layers.activeTourists || layers.inactiveTourists)
+                      ? "visible"
+                      : "none",
+                }}
+                paint={{
+                  "circle-color": "#3b82f6",
+                  "circle-radius": [
+                    "step",
+                    ["get", "point_count"],
+                    15,
+                    10,
+                    20,
+                    50,
+                    25,
+                  ],
+                  "circle-opacity": 0.8,
+                  "circle-stroke-width": 2,
+                  "circle-stroke-color": "#fff",
+                }}
+              />
+              <Layer
+                id="tourist-cluster-count"
+                type="symbol"
+                source="tourists"
+                filter={["has", "point_count"]}
+                layout={{
+                  visibility:
+                    touristSource.features.length > 0 &&
+                    (layers.activeTourists || layers.inactiveTourists)
+                      ? "visible"
+                      : "none",
+                  "text-field": "{point_count_abbreviated}",
+                  "text-font": [
+                    "DIN Offc Pro Medium",
+                    "Arial Unicode MS Bold",
+                  ],
+                  "text-size": 12,
+                }}
+                paint={{ "text-color": "#ffffff" }}
+              />
+              {/* Filter Active/Inactive based on Layer State */}
+              <Layer
+                id="tourist-circles"
+                type="circle"
+                source="tourists"
+                filter={
+                  !(
+                    touristSource.features.length > 0 &&
+                    (layers.activeTourists || layers.inactiveTourists)
+                  )
+                    ? ["==", ["get", "status"], "__never_match__"]
+                    : layers.activeTourists && layers.inactiveTourists
+                      ? ["all", ["!", ["has", "point_count"]]]
+                      : layers.activeTourists
+                        ? [
+                            "all",
+                            ["!", ["has", "point_count"]],
+                            ["==", ["get", "status"], "active"],
+                          ]
+                        : layers.inactiveTourists
+                          ? [
+                              "all",
+                              ["!", ["has", "point_count"]],
+                              ["!=", ["get", "status"], "active"],
+                            ]
+                          : [
+                              "all",
+                              ["!", ["has", "point_count"]],
+                              ["==", ["get", "status"], "__none__"],
+                            ]
+                }
+                paint={{
+                  "circle-color": [
+                    "match",
+                    ["get", "status"],
+                    "active",
+                    "#0ea5e9",
+                    "#f97316",
+                  ],
+                  "circle-radius": 9,
+                  "circle-stroke-width": 2,
+                  "circle-stroke-color": "#111827",
+                }}
+              />
+              <Layer
+                id="tourist-labels"
+                type="symbol"
+                source="tourists"
+                filter={
+                  touristSource.features.length > 0 &&
+                  (layers.activeTourists || layers.inactiveTourists)
+                    ? ["all", ["!", ["has", "point_count"]]]
+                    : ["==", ["get", "status"], "__never_match__"]
+                }
+                layout={{
+                  "text-field": ["coalesce", ["get", "name"], ["get", "id"]],
+                  "text-size": 10,
+                  "text-offset": [0, 1.3],
+                  "text-anchor": "top",
+                }}
+                paint={{
+                  "text-color": "#111827",
+                  "text-halo-color": "#ffffff",
+                  "text-halo-width": 1,
+                }}
+              />
+            </Source>
 
             {/* INCIDENTS */}
             {incidentSource && layers.incidents && (

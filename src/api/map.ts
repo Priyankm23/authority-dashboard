@@ -1,5 +1,8 @@
-import { API_BASE_URL } from "../config";
+import { API_BASE_URL, PATH_DEVIATION_API_BASE_URL } from "../config";
 const API_BASE = import.meta.env.VITE_API_BASE_URL || API_BASE_URL;
+const PATH_DEVIATION_API_BASE =
+  import.meta.env.VITE_PATH_DEVIATION_API_BASE ||
+  PATH_DEVIATION_API_BASE_URL;
 
 export interface MapStats {
   totalTourists: number;
@@ -112,6 +115,18 @@ export interface StyledZonesResponse {
   geofences: any[]; // We won't use these
 }
 
+export interface SafetyLatestUser {
+  userId: string;
+  location: { lat: number; lng: number };
+  timestamp: string;
+  activeZoneCount: number;
+  safetyScore: number;
+}
+
+export interface SafetyLatestUsersResponse {
+  users: SafetyLatestUser[];
+}
+
 export async function fetchMapOverview(): Promise<MapOverviewResponse> {
   const token = localStorage.getItem("token");
   const headers = { "Content-Type": "application/json" };
@@ -143,4 +158,14 @@ export async function fetchStyledZones(): Promise<StyledZonesResponse> {
 
   const json = await res.json();
   return json as StyledZonesResponse;
+}
+
+export async function fetchLatestSafetyUsers(): Promise<SafetyLatestUser[]> {
+  const res = await fetch(`${PATH_DEVIATION_API_BASE}/safety/users/latest`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch safety latest users: ${res.status}`);
+  }
+
+  const json = (await res.json()) as SafetyLatestUsersResponse;
+  return Array.isArray(json.users) ? json.users : [];
 }
