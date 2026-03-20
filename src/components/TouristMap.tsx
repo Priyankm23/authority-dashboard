@@ -291,7 +291,14 @@ const TouristMap: React.FC = () => {
       }
     };
 
-    const safetyPollingInterval = setInterval(refreshSafetyUsers, 30000);
+    // Immediately re-poll safety users after 3s in case the app emits its first
+    // GPS point slightly after the dashboard finishes its initial load.
+    const earlyPollTimer = setTimeout(() => {
+      console.info('[Map] Early safety re-poll (3s after load)...');
+      refreshSafetyUsers();
+    }, 3000);
+
+    const safetyPollingInterval = setInterval(refreshSafetyUsers, 10000); // 10s poll
 
     // Socket Connection Status
     const checkConnection = () => {
@@ -462,6 +469,78 @@ const TouristMap: React.FC = () => {
       });
     };
 
+    // Real-time Tourist Location Update Listener
+    const handleLocationUpdate = (locationData: any) => {
+      const touristId = String(locationData?.touristId || locationData?.userId || "");
+      const lat = Number(locationData?.location?.lat);
+      const lng = Number(locationData?.location?.lng);
+
+      if (!touristId || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return;
+      }
+
+      setData((prevData) => {
+        const base: MapOverviewResponse =
+          prevData ?? {
+            stats: {
+              totalTourists: 0,
+              activeAlerts: 0,
+              highRiskZones: 0,
+              responseUnits: 0,
+            },
+            mapData: {
+              tourists: [],
+              zones: [],
+              activeAlerts: [],
+              riskGrids: [],
+              incidents: [],
+            },
+          };
+
+        let found = false;
+        const updatedTourists = base.mapData.tourists.map((tourist) => {
+          if (String(tourist.id) !== touristId) {
+            return tourist;
+          }
+
+          found = true;
+          return {
+            ...tourist,
+            location: { lat, lng },
+            safetyScore:
+              Number(locationData?.safetyScore) || tourist.safetyScore || 0,
+            status: "active" as const,
+          };
+        });
+
+        if (!found) {
+          updatedTourists.push({
+            id: touristId,
+            name: touristId,
+            status: "active",
+            safetyScore: Number(locationData?.safetyScore) || 0,
+            location: { lat, lng },
+            type: "tourist",
+          });
+        }
+
+        return {
+          ...base,
+          stats: {
+            ...base.stats,
+            totalTourists: Math.max(
+              base.stats.totalTourists,
+              updatedTourists.length,
+            ),
+          },
+          mapData: {
+            ...base.mapData,
+            tourists: updatedTourists,
+          },
+        };
+      });
+    };
+
     // Real-time Danger Zone Added Listener
     const handleDangerZoneAdded = (zoneData: any) => {
       console.log("🚨 [Map] Danger Zone Added:", zoneData);
@@ -503,14 +582,17 @@ const TouristMap: React.FC = () => {
     onAuthorityEvent("riskGridUpdated", handleRiskGridUpdate);
     onAuthorityEvent("incidentReported", handleIncidentReported);
     onAuthorityEvent("dangerZoneAdded", handleDangerZoneAdded);
+    onAuthorityEvent("locationUpdate", handleLocationUpdate);
 
     return () => {
+      clearTimeout(earlyPollTimer);
       clearInterval(interval);
       clearInterval(safetyPollingInterval);
       offAuthorityEvent("newSOSAlert", handleNewSOSAlert);
       offAuthorityEvent("riskGridUpdated", handleRiskGridUpdate);
       offAuthorityEvent("incidentReported", handleIncidentReported);
       offAuthorityEvent("dangerZoneAdded", handleDangerZoneAdded);
+      offAuthorityEvent("locationUpdate", handleLocationUpdate);
     };
   }, [mergeSafetyUsers]);
 

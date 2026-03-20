@@ -274,24 +274,44 @@ export async function fetchPendingAlerts(): Promise<Alert[]> {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  try {
-    const res = await fetch(`${API_BASE}/api/authority/alerts/pending`, {
-      headers,
-    });
-    if (!res.ok) {
-      console.error(`Failed to fetch pending alerts: ${res.status}`);
-      return [];
-    }
-    const data = await res.json();
-
-    // Handle different response formats
+  const parseAlerts = (data: any): Alert[] => {
     if (data && Array.isArray(data.alerts)) return data.alerts as Alert[];
     if (data && Array.isArray(data)) return data as Alert[];
     if (data && data.alert) return [data.alert] as Alert[];
+    return [];
+  };
 
+  try {
+    const pendingRes = await fetch(`${API_BASE}/api/authority/alerts/pending`, {
+      headers,
+    });
+
+    if (pendingRes.ok) {
+      const pendingData = await pendingRes.json();
+      return parseAlerts(pendingData);
+    }
+
+    // Backward-compatible fallback: some deployments expose only /alerts.
+    if (pendingRes.status === 404) {
+      const fallbackRes = await fetch(`${API_BASE}/api/authority/alerts`, {
+        headers,
+      });
+      if (!fallbackRes.ok) {
+        console.warn(`Pending alerts fallback failed: ${fallbackRes.status}`);
+        return [];
+      }
+      const fallbackData = await fallbackRes.json();
+      const alerts = parseAlerts(fallbackData);
+      return alerts.filter((a) => {
+        const status = String(a.status || "").toLowerCase();
+        return status === "new" || status === "pending" || status === "";
+      });
+    }
+
+    console.warn(`Failed to fetch pending alerts: ${pendingRes.status}`);
     return [];
   } catch (error) {
-    console.error("Error fetching pending alerts:", error);
+    console.info('[fetchPendingAlerts] Network error (non-critical):', error);
     return [];
   }
 }

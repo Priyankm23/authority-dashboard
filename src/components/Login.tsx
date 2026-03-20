@@ -84,10 +84,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         onLogin(res.user);
         // If the logged-in user is an authority, create socket immediately
         try {
-          if (
-            (res.user as any).role === "police" &&
-            window.createAuthoritySocketForCurrentUser
-          ) {
+          if (window.createAuthoritySocketForCurrentUser) {
             // call the window helper exposed in App to create socket and store ref there
             window.createAuthoritySocketForCurrentUser();
           }

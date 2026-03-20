@@ -92,7 +92,7 @@ function App() {
 
   // Separate effect for auto-creating socket when user logs in
   useEffect(() => {
-    if (user && user.role === "police" && !authoritySocketRef.current) {
+    if (user && !authoritySocketRef.current) {
       console.log("[App] Auto-creating authority socket for logged-in user:", user.id);
       authoritySocketRef.current = createAuthoritySocket(String(user.id));
     }

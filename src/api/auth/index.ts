@@ -1,8 +1,62 @@
-import type { User } from "../../types";
+/*
+  Auth API client
+  - Separate base URL for auth-related endpoints (do not mix with other API endpoints)
+  - Exports: signup, login, getCurrentUser
+*/
 
-// Fetch the current authenticated user using the session cookie
+import type { User } from "../../types";
+import { API_BASE_URL } from "../../config";
+
+const AUTH_BASE = import.meta.env.VITE_AUTH_API_BASE_URL || API_BASE_URL;
+
+export type SignupPayload = {
+  username: string;
+  email: string;
+  password: string;
+  fullName: string;
+  authorityId: string;
+  role:
+    | "Police Officer"
+    | "Tourism Officer"
+    | "Emergency Responder"
+    | "System Administrator";
+};
+
+export type AuthResponse = {
+  success: boolean;
+  message?: string;
+  token?: string;
+  user?: User | undefined;
+  error?: string;
+};
+
+function mapBackendUser(backendUser: any): User | undefined {
+  if (!backendUser || typeof backendUser !== "object") {
+    return undefined;
+  }
+
+  const rawRole =
+    typeof backendUser.role === "string"
+      ? backendUser.role.toLowerCase()
+      : "";
+
+  const mappedRole: User["role"] = rawRole.includes("police")
+    ? "police"
+    : rawRole.includes("tourism")
+      ? "tourism"
+      : "admin";
+
+  return {
+    id: String(backendUser.id || backendUser._id || ""),
+    name: backendUser.fullName || backendUser.username || backendUser.name || "",
+    email: backendUser.email || "",
+    role: mappedRole,
+    department: backendUser.authorityId || backendUser.department || "",
+  };
+}
+
+// Fetch the current authenticated user using token/cookie auth
 export async function getCurrentUser(): Promise<AuthResponse> {
-  // add a timeout so requests that hang don't block the app indefinitely
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
   try {
@@ -27,32 +81,8 @@ export async function getCurrentUser(): Promise<AuthResponse> {
         error: data?.error,
       };
     }
-    // success path continues below
-    clearTimeout(timeout);
 
-    // backend returns { success: true, user: { id, username, fullName, email, role, authorityId, isActive } }
-    // map it to frontend User shape used in the app
-    const backendUser = data?.user;
-    const mappedUser: User | undefined = backendUser
-      ? {
-          id: String(backendUser.id || backendUser._id || ""),
-          // frontend expects `name` while backend provides `fullName` or `username`
-          name: backendUser.fullName || backendUser.username || "",
-          email: backendUser.email || "",
-          // map roles conservatively: backend uses human-friendly roles
-          role: (backendUser.role && typeof backendUser.role === "string"
-            ? backendUser.role.toLowerCase().includes("police")
-              ? "police"
-              : backendUser.role.toLowerCase().includes("tourism")
-                ? "tourism"
-                : "admin"
-            : "admin") as User["role"],
-          // authorityId/department mapping: prefer authorityId, fallback to empty string
-          department: backendUser.authorityId || backendUser.department || "",
-        }
-      : undefined;
-
-    return { success: true, user: mappedUser } as AuthResponse;
+    return { success: true, user: mapBackendUser(data?.user) } as AuthResponse;
   } catch (err: any) {
     if (err?.name === "AbortError") {
       console.error("getCurrentUser: request timed out");
@@ -64,36 +94,6 @@ export async function getCurrentUser(): Promise<AuthResponse> {
     clearTimeout(timeout);
   }
 }
-/*
-  Auth API client
-  - Separate base URL for auth-related endpoints (do not mix with other API endpoints)
-  - Default base: http://localhost:8000/api/auth
-  - Exports: signup, login
-*/
-
-import { API_BASE_URL } from "../../config";
-const AUTH_BASE = import.meta.env.VITE_AUTH_API_BASE_URL || API_BASE_URL;
-
-export type SignupPayload = {
-  username: string;
-  email: string;
-  password: string;
-  fullName: string;
-  authorityId: string;
-  role:
-    | "Police Officer"
-    | "Tourism Officer"
-    | "Emergency Responder"
-    | "System Administrator";
-};
-
-export type AuthResponse = {
-  success: boolean;
-  message?: string;
-  token?: string;
-  user?: User | undefined;
-  error?: string;
-};
 
 export async function signup(payload: SignupPayload): Promise<AuthResponse> {
   const res = await fetch(`${AUTH_BASE}/api/authority/signup`, {
@@ -103,14 +103,17 @@ export async function signup(payload: SignupPayload): Promise<AuthResponse> {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    // backend may return { error: '...' }
     return {
       success: false,
       message: data?.message || data?.error || `Signup failed: ${res.status}`,
       error: data?.error,
     };
   }
-  return { success: true, ...data } as AuthResponse;
+  return {
+    success: true,
+    ...data,
+    user: mapBackendUser(data?.user),
+  } as AuthResponse;
 }
 
 export async function login(
@@ -130,5 +133,9 @@ export async function login(
       error: data?.error,
     };
   }
-  return { success: true, ...data } as AuthResponse;
+  return {
+    success: true,
+    ...data,
+    user: mapBackendUser(data?.user),
+  } as AuthResponse;
 }

@@ -4,6 +4,8 @@ const PATH_DEVIATION_API_BASE =
   import.meta.env.VITE_PATH_DEVIATION_API_BASE ||
   PATH_DEVIATION_API_BASE_URL;
 
+console.info('[map.ts] Using PATH_DEVIATION_API_BASE:', PATH_DEVIATION_API_BASE);
+
 export interface MapStats {
   totalTourists: number;
   activeAlerts: number;
@@ -161,11 +163,48 @@ export async function fetchStyledZones(): Promise<StyledZonesResponse> {
 }
 
 export async function fetchLatestSafetyUsers(): Promise<SafetyLatestUser[]> {
-  const res = await fetch(`${PATH_DEVIATION_API_BASE}/safety/users/latest`);
+  const url = `${PATH_DEVIATION_API_BASE}/safety/users/latest?minutes=1440&limit=1000`;
+  console.info('[fetchLatestSafetyUsers] Fetching from:', url);
+
+  const res = await fetch(url);
   if (!res.ok) {
+    console.error('[fetchLatestSafetyUsers] Request failed:', res.status, res.statusText);
     throw new Error(`Failed to fetch safety latest users: ${res.status}`);
   }
 
-  const json = (await res.json()) as SafetyLatestUsersResponse;
-  return Array.isArray(json.users) ? json.users : [];
+  const json = (await res.json()) as SafetyLatestUsersResponse & {
+    users?: any[];
+  };
+
+  if (!Array.isArray(json.users)) {
+    return [];
+  }
+
+  const normalized: SafetyLatestUser[] = [];
+
+  for (const row of json.users) {
+    const userId = String(row?.userId || row?.touristId || row?.id || "");
+    const lat = Number(
+      row?.location?.lat ?? row?.latitude ?? row?.latestLocation?.lat,
+    );
+    const lng = Number(
+      row?.location?.lng ?? row?.longitude ?? row?.latestLocation?.lng,
+    );
+    const safetyScore = Number(row?.safetyScore ?? row?.score ?? 0);
+
+    if (!userId || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+      continue;
+    }
+
+    normalized.push({
+      userId,
+      location: { lat, lng },
+      timestamp: String(row?.timestamp || row?.updatedAt || new Date().toISOString()),
+      activeZoneCount: Number(row?.activeZoneCount ?? row?.zones ?? 0),
+      safetyScore,
+    });
+  }
+
+  console.info(`[fetchLatestSafetyUsers] ✅ Received ${json.users.length} raw users, normalized to ${normalized.length}`);
+  return normalized;
 }
