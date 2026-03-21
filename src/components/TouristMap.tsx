@@ -110,6 +110,20 @@ const TouristMap: React.FC = () => {
         userId: string;
         touristName?: string;
         mobileNumber?: string;
+        role?: string;
+        groupId?: string;
+        emergencyContact?: { name?: string; phone?: string };
+        dayWiseItinerary?: Array<{
+          dayNumber: number;
+          date: string;
+          nodes: Array<{
+            type?: string;
+            name?: string;
+            locationName?: string;
+            scheduledTime?: string;
+            activityDetails?: string;
+          }>;
+        }>;
         location: { lat: number; lng: number };
         safetyScore: number;
       }>,
@@ -126,6 +140,10 @@ const TouristMap: React.FC = () => {
           id: row.userId,
           name: existing?.name || row.touristName || row.userId,
           mobileNumber: row.mobileNumber ?? existing?.mobileNumber,
+          role: row.role ?? existing?.role,
+          groupId: row.groupId ?? existing?.groupId,
+          emergencyContact: row.emergencyContact ?? existing?.emergencyContact,
+          dayWiseItinerary: row.dayWiseItinerary ?? existing?.dayWiseItinerary,
           status: existing?.status || ("active" as const),
           safetyScore: row.safetyScore ?? existing?.safetyScore ?? 0,
           location: {
@@ -1577,6 +1595,43 @@ const TouristMap: React.FC = () => {
                               {tourist.mobileNumber || "N/A"}
                             </span>
                           </p>
+                          <p className="flex justify-between">
+                            <span>Role:</span>{" "}
+                            <span className="font-medium">
+                              {tourist.role || "N/A"}
+                            </span>
+                          </p>
+                          <p className="flex justify-between">
+                            <span>Group ID:</span>{" "}
+                            <span className="font-medium">
+                              {tourist.groupId || "N/A"}
+                            </span>
+                          </p>
+                          <p className="flex justify-between">
+                            <span>Emergency:</span>{" "}
+                            <span className="font-medium text-right max-w-[60%]">
+                              {tourist.emergencyContact?.name && tourist.emergencyContact?.phone
+                                ? `${tourist.emergencyContact.name} (${tourist.emergencyContact.phone})`
+                                : "N/A"}
+                            </span>
+                          </p>
+                          <div className="bg-gray-50 p-3 rounded-lg border border-gray-100">
+                            <p className="text-xs uppercase text-gray-500 mb-1">
+                              Day-Wise Itinerary
+                            </p>
+                            {Array.isArray(tourist.dayWiseItinerary) && tourist.dayWiseItinerary.length > 0 ? (
+                              <div className="space-y-2">
+                                <p className="text-xs text-gray-700">
+                                  Days: <strong>{tourist.dayWiseItinerary.length}</strong>
+                                </p>
+                                <p className="text-xs text-gray-700">
+                                  Next stop: <strong>{tourist.dayWiseItinerary[0]?.nodes?.[0]?.name || "N/A"}</strong>
+                                </p>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-gray-500">No itinerary shared</p>
+                            )}
+                          </div>
                           <div className="bg-gray-50 p-3 rounded-lg border border-gray-100">
                             <p className="text-xs uppercase text-gray-500 mb-1">
                               Safety Score

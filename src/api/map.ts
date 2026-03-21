@@ -17,6 +17,20 @@ export interface MapTourist {
   id: string; // digitalId or touristId
   name: string;
   mobileNumber?: string;
+  role?: string;
+  groupId?: string;
+  emergencyContact?: { name?: string; phone?: string };
+  dayWiseItinerary?: Array<{
+    dayNumber: number;
+    date: string;
+    nodes: Array<{
+      type?: string;
+      name?: string;
+      locationName?: string;
+      scheduledTime?: string;
+      activityDetails?: string;
+    }>;
+  }>;
   status: "active" | "expired";
   safetyScore: number;
   location: { lat: number; lng: number };
@@ -122,6 +136,20 @@ export interface SafetyLatestUser {
   userId: string;
   touristName?: string;
   mobileNumber?: string;
+  role?: string;
+  groupId?: string;
+  emergencyContact?: { name?: string; phone?: string };
+  dayWiseItinerary?: Array<{
+    dayNumber: number;
+    date: string;
+    nodes: Array<{
+      type?: string;
+      name?: string;
+      locationName?: string;
+      scheduledTime?: string;
+      activityDetails?: string;
+    }>;
+  }>;
   location: { lat: number; lng: number };
   timestamp: string;
   activeZoneCount: number;
@@ -200,6 +228,12 @@ export async function fetchLatestSafetyUsers(): Promise<SafetyLatestUser[]> {
     const mobileNumber = String(
       row?.mobileNumber ?? row?.phone ?? row?.tourist?.phone ?? "",
     ).trim();
+    const role = String(row?.role ?? "").trim();
+    const groupId = String(row?.groupId ?? "").trim();
+    const emergencyContact = row?.emergencyContact ?? undefined;
+    const dayWiseItinerary = Array.isArray(row?.dayWiseItinerary)
+      ? row.dayWiseItinerary
+      : undefined;
 
     if (!userId || !Number.isFinite(lat) || !Number.isFinite(lng)) {
       continue;
@@ -209,6 +243,10 @@ export async function fetchLatestSafetyUsers(): Promise<SafetyLatestUser[]> {
       userId,
       touristName: touristName || undefined,
       mobileNumber: mobileNumber || undefined,
+      role: role || undefined,
+      groupId: groupId || undefined,
+      emergencyContact,
+      dayWiseItinerary,
       location: { lat, lng },
       timestamp: String(row?.timestamp || row?.updatedAt || new Date().toISOString()),
       activeZoneCount: Number(row?.activeZoneCount ?? row?.zones ?? 0),
