@@ -16,6 +16,7 @@ export interface MapStats {
 export interface MapTourist {
   id: string; // digitalId or touristId
   name: string;
+  mobileNumber?: string;
   status: "active" | "expired";
   safetyScore: number;
   location: { lat: number; lng: number };
@@ -119,6 +120,8 @@ export interface StyledZonesResponse {
 
 export interface SafetyLatestUser {
   userId: string;
+  touristName?: string;
+  mobileNumber?: string;
   location: { lat: number; lng: number };
   timestamp: string;
   activeZoneCount: number;
@@ -191,6 +194,12 @@ export async function fetchLatestSafetyUsers(): Promise<SafetyLatestUser[]> {
       row?.location?.lng ?? row?.longitude ?? row?.latestLocation?.lng,
     );
     const safetyScore = Number(row?.safetyScore ?? row?.score ?? 0);
+    const touristName = String(
+      row?.touristName ?? row?.name ?? row?.tourist?.name ?? "",
+    ).trim();
+    const mobileNumber = String(
+      row?.mobileNumber ?? row?.phone ?? row?.tourist?.phone ?? "",
+    ).trim();
 
     if (!userId || !Number.isFinite(lat) || !Number.isFinite(lng)) {
       continue;
@@ -198,6 +207,8 @@ export async function fetchLatestSafetyUsers(): Promise<SafetyLatestUser[]> {
 
     normalized.push({
       userId,
+      touristName: touristName || undefined,
+      mobileNumber: mobileNumber || undefined,
       location: { lat, lng },
       timestamp: String(row?.timestamp || row?.updatedAt || new Date().toISOString()),
       activeZoneCount: Number(row?.activeZoneCount ?? row?.zones ?? 0),

@@ -108,6 +108,8 @@ const TouristMap: React.FC = () => {
       mapResult: MapOverviewResponse,
       safetyUsers: Array<{
         userId: string;
+        touristName?: string;
+        mobileNumber?: string;
         location: { lat: number; lng: number };
         safetyScore: number;
       }>,
@@ -122,7 +124,8 @@ const TouristMap: React.FC = () => {
         const existing = existingById.get(row.userId);
         updatedBySafety.set(row.userId, {
           id: row.userId,
-          name: existing?.name || row.userId,
+          name: existing?.name || row.touristName || row.userId,
+          mobileNumber: row.mobileNumber ?? existing?.mobileNumber,
           status: existing?.status || ("active" as const),
           safetyScore: row.safetyScore ?? existing?.safetyScore ?? 0,
           location: {
@@ -1566,6 +1569,12 @@ const TouristMap: React.FC = () => {
                             <span>Digital ID:</span>{" "}
                             <span className="font-mono text-xs bg-gray-50 p-1 rounded">
                               {tourist.id.substring(0, 8)}...
+                            </span>
+                          </p>
+                          <p className="flex justify-between">
+                            <span>Mobile:</span>{" "}
+                            <span className="font-medium">
+                              {tourist.mobileNumber || "N/A"}
                             </span>
                           </p>
                           <div className="bg-gray-50 p-3 rounded-lg border border-gray-100">
