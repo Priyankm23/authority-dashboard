@@ -30,15 +30,31 @@ export type AuthResponse = {
   error?: string;
 };
 
+export type VerifyTouristRecordResponse = {
+  verified: boolean;
+  touristId: string;
+  payloadHashUsed?: string;
+  payloadHashRecomputed?: string;
+  regHashInDb?: string;
+  hashesMatchInDb?: boolean;
+  recomputeVariantUsed?: string;
+  blockchain?: {
+    eventId?: string;
+    regTxHash?: string;
+    contractAddressChecked?: string;
+    contractAddressFromTx?: string;
+  };
+  message?: string;
+  error?: string;
+};
+
 function mapBackendUser(backendUser: any): User | undefined {
   if (!backendUser || typeof backendUser !== "object") {
     return undefined;
   }
 
   const rawRole =
-    typeof backendUser.role === "string"
-      ? backendUser.role.toLowerCase()
-      : "";
+    typeof backendUser.role === "string" ? backendUser.role.toLowerCase() : "";
 
   const mappedRole: User["role"] = rawRole.includes("police")
     ? "police"
@@ -48,7 +64,8 @@ function mapBackendUser(backendUser: any): User | undefined {
 
   return {
     id: String(backendUser.id || backendUser._id || ""),
-    name: backendUser.fullName || backendUser.username || backendUser.name || "",
+    name:
+      backendUser.fullName || backendUser.username || backendUser.name || "",
     email: backendUser.email || "",
     role: mappedRole,
     department: backendUser.authorityId || backendUser.department || "",
@@ -138,4 +155,34 @@ export async function login(
     ...data,
     user: mapBackendUser(data?.user),
   } as AuthResponse;
+}
+
+export async function verifyTouristRecord(
+  touristId: string,
+): Promise<VerifyTouristRecordResponse> {
+  const token = localStorage.getItem("token");
+  const headers: HeadersInit = {
+    "Content-Type": "application/json",
+  };
+
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(
+    `${AUTH_BASE}/api/auth/verify/${encodeURIComponent(touristId)}`,
+    {
+      method: "GET",
+      headers,
+    },
+  );
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(
+      data?.message || data?.error || `Verification failed: ${res.status}`,
+    );
+  }
+
+  return data as VerifyTouristRecordResponse;
 }

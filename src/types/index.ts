@@ -2,7 +2,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  role: 'police' | 'tourism' | 'admin';
+  role: "police" | "tourism" | "admin";
   department: string;
 }
 
@@ -16,7 +16,7 @@ export interface Tourist {
   tripValidFrom: string;
   tripValidTo: string;
   safetyScore: number;
-  status: 'active' | 'expired' | 'revoked';
+  status: "active" | "expired" | "revoked";
   lastKnownLocation: {
     lat: number;
     lng: number;
@@ -54,19 +54,34 @@ export interface SOSAlert {
     locationName?: string;
   };
   locationName?: string;
-  emergencyType?: 'medical' | 'accident' | 'crime' | 'lost' | 'natural_disaster';
-  severity?: 'low' | 'medium' | 'high' | 'critical';
+  emergencyType?:
+    | "medical"
+    | "accident"
+    | "crime"
+    | "lost"
+    | "natural_disaster";
+  severity?: "low" | "medium" | "high" | "critical";
   safetyScore?: number;
-  sosReason?: {
-    reason: string;
-    extra?: string;
-  } | string;
+  sosReason?:
+    | {
+        reason: string;
+        extra?: string;
+      }
+    | string;
   timestamp: string;
-  status: 'new' | 'assigned' | 'in_progress' | 'resolved' | 'responding';
+  status: "new" | "assigned" | "in_progress" | "resolved" | "responding";
   assignedUnit?: string;
-  assignedTo?: (string | { authorityId: string; fullName: string; role?: string })[];
+  assignedBy?: string;
+  assignedTo?: (
+    | string
+    | { authorityId: string; fullName: string; role?: string }
+  )[];
   responseTime?: string | number;
   responseDate?: string;
+  etaMinutes?: number;
+  etaArrivalAt?: string;
+  etaUpdatedAt?: string;
+  etaUpdatedBy?: string;
   contactInfo?: string;
   description?: string;
   emergencyContactName?: string;

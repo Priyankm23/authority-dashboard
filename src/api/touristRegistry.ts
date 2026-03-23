@@ -12,6 +12,7 @@ export interface TouristRegistryItem {
   safetyScore: number;
   status: "ACTIVE" | "EXPIRED";
   regTxHash: string;
+  itinerary?: any[];
 }
 
 export interface ExpiredTouristItem {

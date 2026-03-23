@@ -55,6 +55,8 @@ export interface Analytics {
   demographics: {
     mostSosFromAge: string;
     soloTravelersPercent: string;
+    populationSoloPercent?: string;
+    soloRiskInsight?: string;
     topGroup: string;
   };
   predictions: {
@@ -63,6 +65,12 @@ export interface Analytics {
     proactiveDeployment: string;
   };
   patterns: Record<string, string>;
+}
+
+export interface CrowdPredictionData {
+  summary: string;
+  targetDate: string;
+  hotspots: string[];
 }
 
 export interface DashboardStats {
@@ -86,12 +94,81 @@ export interface DashboardStats {
   analytics?: Analytics;
 }
 
+export interface MedicalProfile {
+  summary: string;
+  totalAtRisk: number;
+  totalVulnerable: number;
+  medicalBreakdown: {
+    hasMedicalConditions: number;
+    hasAllergies: number;
+    bloodGroups: Record<string, number>;
+    elderly: number;
+  };
+  vulnerableTourists: {
+    touristId: string;
+    zone: string;
+    age: number;
+    bloodGroup: string;
+    conditions: string;
+    allergies: string;
+  }[];
+}
+
+export async function fetchMedicalProfiling(): Promise<MedicalProfile> {
+  const res = await fetch(
+    `${API_BASE}/api/authority/analytics/medical-profiling`,
+    {
+      headers: {
+        "Content-Type": "application/json",
+        ...(localStorage.getItem("token")
+          ? { Authorization: `Bearer ${localStorage.getItem("token")}` }
+          : {}),
+      },
+    },
+  );
+
+  if (!res.ok) {
+    throw new Error(`Failed to fetch medical profiling: ${res.status}`);
+  }
+
+  const json = await res.json();
+  if (json.success && json.data) {
+    return json.data as MedicalProfile;
+  }
+
+  throw new Error("Invalid response format");
+}
+
+export async function fetchCrowdPrediction(): Promise<CrowdPredictionData> {
+  const res = await fetch(
+    `${API_BASE}/api/authority/analytics/crowd-prediction`,
+    {
+      headers: {
+        "Content-Type": "application/json",
+        ...(localStorage.getItem("token")
+          ? { Authorization: `Bearer ${localStorage.getItem("token")}` }
+          : {}),
+      },
+    },
+  );
+
+  if (!res.ok) {
+    throw new Error(`Failed to fetch crowd prediction: ${res.status}`);
+  }
+
+  const json = await res.json();
+  if (json.success && json.data) {
+    return json.data as CrowdPredictionData;
+  }
+
+  throw new Error("Invalid response format");
+}
+
 export async function fetchDashboardStats(): Promise<DashboardStats> {
   // Assuming the route is mounted under /api/authority like other authority routes
   const res = await fetch(`${API_BASE}/api/authority/dashboard-stats`, {
     headers: {
       "Content-Type": "application/json",
-      // Include authorization header if token exists in localStorage
       ...(localStorage.getItem("token")
         ? { Authorization: `Bearer ${localStorage.getItem("token")}` }
         : {}),
