@@ -18,6 +18,7 @@ import type { MapRef } from "react-map-gl/mapbox";
 import type { GeoJSONSource } from "mapbox-gl";
 import {
   RefreshCw,
+  Plus,
   AlertTriangle,
   Layers,
   X,
@@ -34,6 +35,7 @@ import {
   DangerZone,
   RiskGrid,
   fetchLatestSafetyUsers,
+  createDangerZone,
 } from "../api/map";
 import {
   onAuthorityEvent,
@@ -77,6 +79,18 @@ type LayerVisibility = {
   inactiveTourists: boolean;
 };
 
+type DangerZoneFormState = {
+  name: string;
+  type: "circle";
+  lat: string;
+  lng: string;
+  radiusKm: string;
+  riskLevel: string;
+  category: string;
+  state: string;
+  source: string;
+};
+
 const TouristMap: React.FC = () => {
   const { showToast } = useToast();
   const [data, setData] = useState<MapOverviewResponse | null>(null);
@@ -88,6 +102,7 @@ const TouristMap: React.FC = () => {
     id: string;
     type: "tourist" | "zone" | "alert" | "incident" | "danger" | "risk_grid";
   } | null>(null);
+  const [coLocatedTouristIds, setCoLocatedTouristIds] = useState<string[]>([]);
 
   const [isConnected, setIsConnected] = useState(false);
 
@@ -97,6 +112,21 @@ const TouristMap: React.FC = () => {
     zones: true,
     activeTourists: true,
     inactiveTourists: true,
+  });
+
+  const [isAddZoneOpen, setIsAddZoneOpen] = useState(false);
+  const [isSubmittingZone, setIsSubmittingZone] = useState(false);
+  const [addZoneError, setAddZoneError] = useState<string | null>(null);
+  const [dangerZoneForm, setDangerZoneForm] = useState<DangerZoneFormState>({
+    name: "",
+    type: "circle",
+    lat: "",
+    lng: "",
+    radiusKm: "1.2",
+    riskLevel: "High",
+    category: "",
+    state: "",
+    source: "Authority Manual Entry",
   });
 
   const mapRef = useRef<MapRef>(null);
@@ -182,8 +212,19 @@ const TouristMap: React.FC = () => {
     setLoading(true);
     try {
       const emptyMapResult: MapOverviewResponse = {
-        stats: { totalTourists: 0, activeAlerts: 0, highRiskZones: 0, responseUnits: 0 },
-        mapData: { tourists: [], zones: [], activeAlerts: [], riskGrids: [], incidents: [] },
+        stats: {
+          totalTourists: 0,
+          activeAlerts: 0,
+          highRiskZones: 0,
+          responseUnits: 0,
+        },
+        mapData: {
+          tourists: [],
+          zones: [],
+          activeAlerts: [],
+          riskGrids: [],
+          incidents: [],
+        },
       };
 
       const [mapResult, zonesResult, latestUsers] = await Promise.all([
@@ -200,6 +241,7 @@ const TouristMap: React.FC = () => {
           return [] as Awaited<ReturnType<typeof fetchLatestSafetyUsers>>;
         }),
       ]);
+
       console.log(
         "[Map] Source counts:",
         "mapOverviewTourists=",
@@ -208,7 +250,9 @@ const TouristMap: React.FC = () => {
         latestUsers.length,
       );
       const mergedMapResult =
-        latestUsers.length > 0 ? mergeSafetyUsers(mapResult, latestUsers) : mapResult;
+        latestUsers.length > 0
+          ? mergeSafetyUsers(mapResult, latestUsers)
+          : mapResult;
       console.log(
         "[Map] Render tourists count:",
         mergedMapResult.mapData.tourists.length,
@@ -300,11 +344,25 @@ const TouristMap: React.FC = () => {
 
         setData((prev) => {
           const base: MapOverviewResponse = prev ?? {
-            stats: { totalTourists: 0, activeAlerts: 0, highRiskZones: 0, responseUnits: 0 },
-            mapData: { tourists: [], zones: [], activeAlerts: [], riskGrids: [], incidents: [] },
+            stats: {
+              totalTourists: 0,
+              activeAlerts: 0,
+              highRiskZones: 0,
+              responseUnits: 0,
+            },
+            mapData: {
+              tourists: [],
+              zones: [],
+              activeAlerts: [],
+              riskGrids: [],
+              incidents: [],
+            },
           };
           const merged = mergeSafetyUsers(base, latestUsers);
-          console.log("[Map] Safety merge: tourists =", merged.mapData.tourists.length);
+          console.log(
+            "[Map] Safety merge: tourists =",
+            merged.mapData.tourists.length,
+          );
           return merged;
         });
       } catch (error) {
@@ -315,7 +373,7 @@ const TouristMap: React.FC = () => {
     // Immediately re-poll safety users after 3s in case the app emits its first
     // GPS point slightly after the dashboard finishes its initial load.
     const earlyPollTimer = setTimeout(() => {
-      console.info('[Map] Early safety re-poll (3s after load)...');
+      console.info("[Map] Early safety re-poll (3s after load)...");
       refreshSafetyUsers();
     }, 3000);
 
@@ -492,7 +550,9 @@ const TouristMap: React.FC = () => {
 
     // Real-time Tourist Location Update Listener
     const handleLocationUpdate = (locationData: any) => {
-      const touristId = String(locationData?.touristId || locationData?.userId || "");
+      const touristId = String(
+        locationData?.touristId || locationData?.userId || "",
+      );
       const lat = Number(locationData?.location?.lat);
       const lng = Number(locationData?.location?.lng);
 
@@ -501,22 +561,21 @@ const TouristMap: React.FC = () => {
       }
 
       setData((prevData) => {
-        const base: MapOverviewResponse =
-          prevData ?? {
-            stats: {
-              totalTourists: 0,
-              activeAlerts: 0,
-              highRiskZones: 0,
-              responseUnits: 0,
-            },
-            mapData: {
-              tourists: [],
-              zones: [],
-              activeAlerts: [],
-              riskGrids: [],
-              incidents: [],
-            },
-          };
+        const base: MapOverviewResponse = prevData ?? {
+          stats: {
+            totalTourists: 0,
+            activeAlerts: 0,
+            highRiskZones: 0,
+            responseUnits: 0,
+          },
+          mapData: {
+            tourists: [],
+            zones: [],
+            activeAlerts: [],
+            riskGrids: [],
+            incidents: [],
+          },
+        };
 
         let found = false;
         const updatedTourists = base.mapData.tourists.map((tourist) => {
@@ -619,6 +678,70 @@ const TouristMap: React.FC = () => {
 
   const toggleLayer = (key: keyof LayerVisibility) => {
     setLayers((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const handleDangerZoneInputChange = (
+    key: keyof DangerZoneFormState,
+    value: string,
+  ) => {
+    setDangerZoneForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const resetDangerZoneForm = () => {
+    setDangerZoneForm({
+      name: "",
+      type: "circle",
+      lat: "",
+      lng: "",
+      radiusKm: "1.2",
+      riskLevel: "High",
+      category: "",
+      state: "",
+      source: "Authority Manual Entry",
+    });
+    setAddZoneError(null);
+  };
+
+  const handleCreateDangerZone = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setAddZoneError(null);
+
+    const lat = Number(dangerZoneForm.lat);
+    const lng = Number(dangerZoneForm.lng);
+    const radiusKm = Number(dangerZoneForm.radiusKm);
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      setAddZoneError("Latitude and Longitude must be valid numbers.");
+      return;
+    }
+
+    if (!Number.isFinite(radiusKm) || radiusKm <= 0) {
+      setAddZoneError("Radius (km) must be a number greater than 0.");
+      return;
+    }
+
+    try {
+      setIsSubmittingZone(true);
+      await createDangerZone({
+        name: dangerZoneForm.name.trim(),
+        type: "circle",
+        coords: [lat, lng],
+        radiusKm,
+        riskLevel: dangerZoneForm.riskLevel.trim(),
+        category: dangerZoneForm.category.trim(),
+        state: dangerZoneForm.state.trim(),
+        source: dangerZoneForm.source.trim(),
+      });
+
+      showToast(`🚨 Danger zone created: ${dangerZoneForm.name}`, "success");
+      setIsAddZoneOpen(false);
+      resetDangerZoneForm();
+      await fetchData();
+    } catch (error: any) {
+      setAddZoneError(error?.message || "Failed to create danger zone.");
+    } finally {
+      setIsSubmittingZone(false);
+    }
   };
 
   // -- GeoJSON Transformations --
@@ -728,9 +851,29 @@ const TouristMap: React.FC = () => {
 
   const incidentSource = useMemo(() => {
     if (!data) return null;
+    const validIncidents = data.mapData.incidents.filter((incident) => {
+      const lat = Number(incident.location?.lat);
+      const lng = Number(incident.location?.lng);
+      return (
+        Number.isFinite(lat) &&
+        Number.isFinite(lng) &&
+        lat >= -90 &&
+        lat <= 90 &&
+        lng >= -180 &&
+        lng <= 180
+      );
+    });
+
+    console.log(
+      "[Map] incidentSource valid/total =",
+      validIncidents.length,
+      "/",
+      data.mapData.incidents.length,
+    );
+
     return {
       type: "FeatureCollection",
-      features: data.mapData.incidents.map((i) => ({
+      features: validIncidents.map((i) => ({
         type: "Feature",
         properties: {
           id: i.id,
@@ -874,18 +1017,48 @@ const TouristMap: React.FC = () => {
   // Using expressions directly in layers below
 
   const onMapClick = useCallback((event: any) => {
-    // 1. Check if clicked on a feature
-    const feature = event.features?.[0];
+    const clickedFeatures = event.features || [];
+    const touristFeatures = clickedFeatures.filter(
+      (candidate: any) =>
+        candidate?.properties?.type === "tourist" &&
+        !candidate?.properties?.cluster,
+    );
+
+    if (touristFeatures.length > 0) {
+      const uniqueTouristIds: string[] = Array.from(
+        new Set<string>(
+          touristFeatures
+            .map((candidate: any) => String(candidate?.properties?.id || ""))
+            .filter((id: string): id is string => Boolean(id)),
+        ),
+      );
+
+      if (uniqueTouristIds.length > 1) {
+        // Keep all co-located tourists accessible from the side panel.
+        setCoLocatedTouristIds(uniqueTouristIds);
+      } else {
+        setCoLocatedTouristIds([]);
+      }
+
+      setSelectedEntity({ id: uniqueTouristIds[0], type: "tourist" });
+      return;
+    }
+
+    // 1. Check if clicked on another feature type
+    const feature = clickedFeatures[0];
 
     if (feature && !feature.properties.cluster) {
       // It's a marker/entity - Open Details Panel Directly
       const { id, type } = feature.properties;
+      setCoLocatedTouristIds([]);
       setSelectedEntity({ id, type });
     } else if (feature && feature.properties.cluster) {
       // Cluster expansion logic
       const clusterId = feature.properties.cluster_id;
       let sourceId = "tourists";
       if (feature.layer.id.includes("alert")) sourceId = "alerts";
+
+      setCoLocatedTouristIds([]);
 
       const source = mapRef.current?.getSource(sourceId) as GeoJSONSource;
 
@@ -898,6 +1071,7 @@ const TouristMap: React.FC = () => {
       });
     } else {
       // Clicked empty space - Close Panel
+      setCoLocatedTouristIds([]);
       setSelectedEntity(null);
     }
   }, []);
@@ -948,6 +1122,13 @@ const TouristMap: React.FC = () => {
         </div>
         <div className="flex items-center space-x-4 mt-4 sm:mt-0">
           <button
+            onClick={() => setIsAddZoneOpen(true)}
+            className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors shadow-sm"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Add Danger Zone</span>
+          </button>
+          <button
             onClick={fetchData}
             className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors shadow-sm"
           >
@@ -985,9 +1166,7 @@ const TouristMap: React.FC = () => {
               ...(dangerZoneSource && layers.zones
                 ? ["danger-zone-polygons"]
                 : []),
-              ...(riskGridSource && layers.zones
-                ? ["risk-grid-fill"]
-                : []),
+              ...(riskGridSource && layers.zones ? ["risk-grid-fill"] : []),
             ]}
             onClick={onMapClick}
             cursor="pointer"
@@ -1314,10 +1493,7 @@ const TouristMap: React.FC = () => {
                       ? "visible"
                       : "none",
                   "text-field": "{point_count_abbreviated}",
-                  "text-font": [
-                    "DIN Offc Pro Medium",
-                    "Arial Unicode MS Bold",
-                  ],
+                  "text-font": ["DIN Offc Pro Medium", "Arial Unicode MS Bold"],
                   "text-size": 12,
                 }}
                 paint={{ "text-color": "#ffffff" }}
@@ -1549,7 +1725,10 @@ const TouristMap: React.FC = () => {
           {selectedEntity ? (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 animate-in slide-in-from-right duration-200 flex-shrink-0">
               <button
-                onClick={() => setSelectedEntity(null)}
+                onClick={() => {
+                  setSelectedEntity(null);
+                  setCoLocatedTouristIds([]);
+                }}
                 className="absolute top-2 right-2 p-1 hover:bg-gray-100 rounded-full text-gray-400 hover:text-gray-600"
               >
                 <X className="w-4 h-4" />
@@ -1570,6 +1749,34 @@ const TouristMap: React.FC = () => {
                         <h3 className="font-semibold text-gray-900">
                           Tourist Details
                         </h3>
+                        {coLocatedTouristIds.length > 1 && (
+                          <div className="mt-3">
+                            <p className="text-xs text-gray-600 mb-2">
+                              Multiple tourists at this location. Select one:
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {coLocatedTouristIds.map((touristId) => {
+                                const candidate = data?.mapData.tourists.find(
+                                  (row) => row.id === touristId,
+                                );
+                                return (
+                                  <button
+                                    key={touristId}
+                                    onClick={() =>
+                                      setSelectedEntity({
+                                        id: touristId,
+                                        type: "tourist",
+                                      })
+                                    }
+                                    className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${selectedEntity.id === touristId ? "bg-blue-600 text-white border-blue-600" : "bg-white text-blue-700 border-blue-200 hover:bg-blue-50"}`}
+                                  >
+                                    {candidate?.name || touristId}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
                       <div className="p-4 space-y-3">
                         <div className="flex items-center justify-between">
@@ -1610,7 +1817,8 @@ const TouristMap: React.FC = () => {
                           <p className="flex justify-between">
                             <span>Emergency:</span>{" "}
                             <span className="font-medium text-right max-w-[60%]">
-                              {tourist.emergencyContact?.name && tourist.emergencyContact?.phone
+                              {tourist.emergencyContact?.name &&
+                              tourist.emergencyContact?.phone
                                 ? `${tourist.emergencyContact.name} (${tourist.emergencyContact.phone})`
                                 : "N/A"}
                             </span>
@@ -1619,17 +1827,27 @@ const TouristMap: React.FC = () => {
                             <p className="text-xs uppercase text-gray-500 mb-1">
                               Day-Wise Itinerary
                             </p>
-                            {Array.isArray(tourist.dayWiseItinerary) && tourist.dayWiseItinerary.length > 0 ? (
+                            {Array.isArray(tourist.dayWiseItinerary) &&
+                            tourist.dayWiseItinerary.length > 0 ? (
                               <div className="space-y-2">
                                 <p className="text-xs text-gray-700">
-                                  Days: <strong>{tourist.dayWiseItinerary.length}</strong>
+                                  Days:{" "}
+                                  <strong>
+                                    {tourist.dayWiseItinerary.length}
+                                  </strong>
                                 </p>
                                 <p className="text-xs text-gray-700">
-                                  Next stop: <strong>{tourist.dayWiseItinerary[0]?.nodes?.[0]?.name || "N/A"}</strong>
+                                  Next stop:{" "}
+                                  <strong>
+                                    {tourist.dayWiseItinerary[0]?.nodes?.[0]
+                                      ?.name || "N/A"}
+                                  </strong>
                                 </p>
                               </div>
                             ) : (
-                              <p className="text-xs text-gray-500">No itinerary shared</p>
+                              <p className="text-xs text-gray-500">
+                                No itinerary shared
+                              </p>
                             )}
                           </div>
                           <div className="bg-gray-50 p-3 rounded-lg border border-gray-100">
@@ -1654,9 +1872,6 @@ const TouristMap: React.FC = () => {
                             {tourist.location.lng.toFixed(5)}
                           </p>
                         </div>
-                        <button className="w-full bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm transition-colors mt-2 font-medium shadow-sm">
-                          View Full Profile
-                        </button>
                       </div>
                     </>
                   );
@@ -2066,6 +2281,191 @@ const TouristMap: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {isAddZoneOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-2xl bg-white rounded-xl border border-gray-200 shadow-2xl">
+            <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Add Danger Zone
+              </h2>
+              <button
+                onClick={() => {
+                  setIsAddZoneOpen(false);
+                  setAddZoneError(null);
+                }}
+                className="p-1 rounded hover:bg-gray-100 text-gray-500"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateDangerZone} className="p-4 space-y-4">
+              {addZoneError && (
+                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {addZoneError}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Name
+                  </label>
+                  <input
+                    type="text"
+                    value={dangerZoneForm.name}
+                    onChange={(e) =>
+                      handleDangerZoneInputChange("name", e.target.value)
+                    }
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                    placeholder="Ahmedabad Riverfront High Alert"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Latitude
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={dangerZoneForm.lat}
+                    onChange={(e) =>
+                      handleDangerZoneInputChange("lat", e.target.value)
+                    }
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                    placeholder="23.0225"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Longitude
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={dangerZoneForm.lng}
+                    onChange={(e) =>
+                      handleDangerZoneInputChange("lng", e.target.value)
+                    }
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                    placeholder="72.5714"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Radius (km)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0.1"
+                    value={dangerZoneForm.radiusKm}
+                    onChange={(e) =>
+                      handleDangerZoneInputChange("radiusKm", e.target.value)
+                    }
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Risk Level
+                  </label>
+                  <input
+                    type="text"
+                    value={dangerZoneForm.riskLevel}
+                    onChange={(e) =>
+                      handleDangerZoneInputChange("riskLevel", e.target.value)
+                    }
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                    placeholder="High"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Category
+                  </label>
+                  <input
+                    type="text"
+                    value={dangerZoneForm.category}
+                    onChange={(e) =>
+                      handleDangerZoneInputChange("category", e.target.value)
+                    }
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                    placeholder="Crowd Surge"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    State
+                  </label>
+                  <input
+                    type="text"
+                    value={dangerZoneForm.state}
+                    onChange={(e) =>
+                      handleDangerZoneInputChange("state", e.target.value)
+                    }
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                    placeholder="Gujarat"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Source
+                  </label>
+                  <input
+                    type="text"
+                    value={dangerZoneForm.source}
+                    onChange={(e) =>
+                      handleDangerZoneInputChange("source", e.target.value)
+                    }
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                    placeholder="Authority Manual Entry"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAddZoneOpen(false);
+                    setAddZoneError(null);
+                  }}
+                  className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingZone}
+                  className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white font-medium inline-flex items-center gap-2"
+                >
+                  {isSubmittingZone && (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  )}
+                  {isSubmittingZone ? "Adding..." : "Add Danger Zone"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

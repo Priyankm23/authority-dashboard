@@ -1,5 +1,17 @@
-﻿import React, { useEffect, useState } from "react";
-import { AlertTriangle, Filter, Wifi, WifiOff } from "lucide-react";
+﻿import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import {
+  AlertCircle,
+  AlertTriangle,
+  CarFront,
+  Filter,
+  Flame,
+  HeartPulse,
+  MapPin,
+  ShieldAlert,
+  Wifi,
+  WifiOff,
+} from "lucide-react";
 import { SOSAlert } from "../types";
 import alertsApi from "../api/alerts";
 import { useToast } from "./ToastProvider";
@@ -16,6 +28,22 @@ import { Card, CardContent } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
+import { Input } from "./ui/input";
+import {
+  MAX_AUTHORITY_UNITS,
+  UNIT_CAPACITY_EVENT,
+  UnitCapacitySnapshot,
+  consumeOneUnit,
+  getUnitCapacitySnapshot,
+} from "../utils/unitCapacity";
 
 // Helper: map backend alert (see apidocs.md) to frontend SOSAlert
 const mapBackendToSOS = (a: any): SOSAlert => {
@@ -66,8 +94,23 @@ const mapBackendToSOS = (a: any): SOSAlert => {
     {};
 
   // try to pick an emergencyType from reason text heuristically
-  const reasonText = (sosReason.reason || "").toLowerCase();
-  let emergencyType: SOSAlert["emergencyType"] = "medical";
+  const rawReasonText =
+    typeof sosReason === "string" ? sosReason : sosReason.reason || "";
+  const reasonText = rawReasonText.toLowerCase();
+  const backendEmergencyType =
+    typeof a.emergencyType === "string" ? a.emergencyType.toLowerCase() : "";
+  let emergencyType: SOSAlert["emergencyType"] | undefined;
+
+  if (
+    backendEmergencyType === "medical" ||
+    backendEmergencyType === "accident" ||
+    backendEmergencyType === "crime" ||
+    backendEmergencyType === "lost" ||
+    backendEmergencyType === "natural_disaster"
+  ) {
+    emergencyType = backendEmergencyType as SOSAlert["emergencyType"];
+  }
+
   if (
     reasonText.includes("cyclone") ||
     reasonText.includes("flood") ||
@@ -78,11 +121,15 @@ const mapBackendToSOS = (a: any): SOSAlert => {
   } else if (reasonText.includes("accident")) {
     emergencyType = "accident";
   } else if (
+    reasonText.includes("security") ||
+    reasonText.includes("theft") ||
     reasonText.includes("attack") ||
     reasonText.includes("robbery") ||
     reasonText.includes("assault")
   ) {
     emergencyType = "crime";
+  } else if (reasonText.includes("medical") || reasonText.includes("health")) {
+    emergencyType = "medical";
   } else if (reasonText.includes("lost")) {
     emergencyType = "lost";
   }
@@ -163,6 +210,12 @@ const mapBackendToSOS = (a: any): SOSAlert => {
     // Keep raw array but ensure we don't break likely string[] consumers if strictly typed?
     // For now, let's just leave assignedTo as is, complex objects will just exist in the data
     assignedTo: Array.isArray(a.assignedTo) ? a.assignedTo : [],
+    assignedBy:
+      Array.isArray(a.assignedTo) && a.assignedTo.length
+        ? typeof a.assignedTo[0] === "object"
+          ? a.assignedTo[0].fullName || a.assignedTo[0].authorityId
+          : String(a.assignedTo[0])
+        : undefined,
     // If backend returns a number (seconds), formatted it, else pass through
     responseTime:
       typeof a.responseTime === "number"
@@ -174,6 +227,15 @@ const mapBackendToSOS = (a: any): SOSAlert => {
           // Actually, let's just allow it or simple format:
           a.responseTime,
     responseDate: a.responseDate,
+    etaMinutes:
+      typeof a.etaMinutes === "number"
+        ? a.etaMinutes
+        : a.etaMinutes !== undefined && a.etaMinutes !== null
+          ? Number(a.etaMinutes)
+          : undefined,
+    etaArrivalAt: a.etaArrivalAt,
+    etaUpdatedAt: a.etaUpdatedAt,
+    etaUpdatedBy: a.etaUpdatedBy,
     contactInfo:
       emergencyContact?.phone ||
       (Array.isArray(a.emergencyContacts) &&
@@ -194,6 +256,8 @@ const mapBackendToSOS = (a: any): SOSAlert => {
 };
 
 const AlertsPanel: React.FC = () => {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [alerts, setAlerts] = useState<SOSAlert[]>([]);
   const [selectedAlert, setSelectedAlert] = useState<SOSAlert | null>(null);
   const [filter, setFilter] = useState<
@@ -202,6 +266,20 @@ const AlertsPanel: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { showToast } = useToast();
+  const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+  const [assignmentAlert, setAssignmentAlert] = useState<SOSAlert | null>(null);
+  const [unitQuery, setUnitQuery] = useState("");
+  const [selectedUnit, setSelectedUnit] = useState("");
+  const [etaMinutesInput, setEtaMinutesInput] = useState("");
+  const [responseTimeInput, setResponseTimeInput] = useState("");
+  const [isAssigning, setIsAssigning] = useState(false);
+  const [unitCapacity, setUnitCapacity] = useState<UnitCapacitySnapshot>({
+    authorityKey: "authority:anonymous",
+    totalUnits: MAX_AUTHORITY_UNITS,
+    usedUnits: 0,
+    availableUnits: MAX_AUTHORITY_UNITS,
+    updatedAt: "",
+  });
 
   // Modal state for creating alerts
   const [isCreateAlertOpen, setIsCreateAlertOpen] = useState(false);
@@ -227,21 +305,124 @@ const AlertsPanel: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+
+    const refreshUnitCapacity = async () => {
+      const snapshot = await getUnitCapacitySnapshot();
+      if (mounted) setUnitCapacity(snapshot);
+    };
+
+    refreshUnitCapacity();
+
+    const refreshHandler = () => {
+      void refreshUnitCapacity();
+    };
+
+    window.addEventListener(UNIT_CAPACITY_EVENT, refreshHandler);
+    window.addEventListener("storage", refreshHandler);
+
+    return () => {
+      mounted = false;
+      window.removeEventListener(UNIT_CAPACITY_EVENT, refreshHandler);
+      window.removeEventListener("storage", refreshHandler);
+    };
+  }, []);
+
+  const unitOptions = useMemo(() => {
+    return Array.from({ length: unitCapacity.totalUnits }, (_, index) => {
+      return `Unit ${index + 1}`;
+    });
+  }, [unitCapacity.totalUnits]);
+
+  const filteredUnitOptions = useMemo(() => {
+    if (!unitQuery.trim()) return unitOptions;
+    const query = unitQuery.toLowerCase();
+    return unitOptions.filter((unit) => unit.toLowerCase().includes(query));
+  }, [unitOptions, unitQuery]);
+
+  const openAssignModal = (alert: SOSAlert) => {
+    if (unitCapacity.availableUnits <= 0) {
+      showToast(
+        "No units left. You have reached the 8-unit assignment limit.",
+        "error",
+      );
+      return;
+    }
+
+    setAssignmentAlert(alert);
+    const nextUnitNumber = Math.min(
+      unitCapacity.usedUnits + 1,
+      unitCapacity.totalUnits,
+    );
+    const defaultUnit = `Unit ${nextUnitNumber}`;
+    setSelectedUnit(defaultUnit);
+    setUnitQuery(defaultUnit);
+    setEtaMinutesInput("");
+    setResponseTimeInput("");
+    setIsAssignModalOpen(true);
+  };
+
+  const closeAssignModal = () => {
+    if (isAssigning) return;
+    setIsAssignModalOpen(false);
+    setAssignmentAlert(null);
+  };
+
   const assignPoliceUnit = async (alertId: string) => {
     try {
+      if (!assignmentAlert || assignmentAlert.id !== alertId) {
+        throw new Error("Alert context missing for assignment");
+      }
+
+      if (unitCapacity.availableUnits <= 0) {
+        showToast(
+          "No units left. You cannot assign more than 8 units.",
+          "error",
+        );
+        return;
+      }
+
+      const etaValue = Number(etaMinutesInput);
+      if (!Number.isFinite(etaValue) || etaValue < 0) {
+        showToast(
+          "ETA (minutes) is required and must be non-negative",
+          "error",
+        );
+        return;
+      }
+
+      const unitValue = selectedUnit.trim() || unitQuery.trim();
+      if (!unitValue) {
+        showToast("Please select or enter a unit", "error");
+        return;
+      }
+
+      setIsAssigning(true);
+
       const alert = alerts.find((a) => a.id === alertId);
-      let responseTimeVal: string | number = 0;
+      let computedResponseSeconds: number | undefined;
 
       if (alert) {
         const start = new Date(alert.timestamp).getTime();
         const now = Date.now();
-        // Calculate difference in seconds
         const diff = Math.floor((now - start) / 1000);
-
-        // Format for display/logging if needed, but send NUMBER to backend
-        // This avoids 500 errors if backend expects Number
-        responseTimeVal = diff;
+        computedResponseSeconds = diff;
       }
+
+      const trimmedResponse = responseTimeInput.trim();
+      const manualResponse =
+        trimmedResponse === "" ? undefined : Number(trimmedResponse);
+      if (
+        manualResponse !== undefined &&
+        (!Number.isFinite(manualResponse) || manualResponse < 0)
+      ) {
+        showToast("Response Time must be a non-negative number", "error");
+        return;
+      }
+
+      const responseTimeVal =
+        manualResponse !== undefined ? manualResponse : computedResponseSeconds;
 
       console.log(
         "👮 Assigning unit to alert:",
@@ -249,16 +430,32 @@ const AlertsPanel: React.FC = () => {
         "Response Time (seconds):",
         responseTimeVal,
       );
+
       const updatedRaw = await alertsApi.assignUnit(alertId, {
         responseTime: responseTimeVal,
+        etaMinutes: etaValue,
+        unit: unitValue,
       });
       const updated = mapBackendToSOS(updatedRaw);
 
       showToast("Unit assigned successfully", "success");
-      setAlerts((prev) => prev.map((a) => (a.id === alertId ? updated : a)));
+      setAlerts((prev) => {
+        const idx = prev.findIndex((a) => a.id === alertId);
+        if (idx === -1) return [updated, ...prev];
+        const next = [...prev];
+        next[idx] = updated;
+        return next;
+      });
+      setSelectedAlert((prev) => (prev?.id === updated.id ? updated : prev));
+      const nextCapacity = await consumeOneUnit();
+      setUnitCapacity(nextCapacity);
+      setIsAssignModalOpen(false);
+      setAssignmentAlert(null);
     } catch (err: any) {
       console.error("Failed to assign unit:", err);
       showToast(err.message || "Failed to assign unit", "error");
+    } finally {
+      setIsAssigning(false);
     }
   };
 
@@ -273,11 +470,47 @@ const AlertsPanel: React.FC = () => {
   };
   const handleRespond = (alert: SOSAlert) => {
     if (alert.status === "new") {
-      assignPoliceUnit(alert.id);
+      navigate(`/alerts?assignAlertId=${encodeURIComponent(alert.id)}`);
     } else if (alert.status !== "resolved") {
       resolveAlert(alert.id);
     }
   };
+
+  useEffect(() => {
+    if (!alerts.length) return;
+
+    const assignAlertId = searchParams.get("assignAlertId");
+    const autoAssign = searchParams.get("autoAssign");
+    if (!assignAlertId && autoAssign !== "1") return;
+
+    const explicitTarget = assignAlertId
+      ? alerts.find(
+          (alert) =>
+            alert.id === assignAlertId || alert.alertId === assignAlertId,
+        )
+      : undefined;
+
+    const fallbackTarget =
+      autoAssign === "1"
+        ? alerts.find((alert) => alert.status === "new") ||
+          alerts.find((alert) => alert.status !== "resolved")
+        : undefined;
+
+    const targetAlert = explicitTarget || fallbackTarget;
+
+    if (unitCapacity.availableUnits <= 0) {
+      showToast(
+        "No units left. Please free capacity before assigning.",
+        "error",
+      );
+    } else if (targetAlert) {
+      openAssignModal(targetAlert);
+    } else if (assignAlertId) {
+      showToast("Requested alert not available for assignment", "error");
+    }
+
+    navigate("/alerts", { replace: true });
+  }, [alerts, navigate, searchParams, showToast, unitCapacity.availableUnits]);
 
   const filteredAlerts =
     filter === "all"
@@ -291,6 +524,45 @@ const AlertsPanel: React.FC = () => {
   const newAlertsCount = alerts.filter(
     (alert) => alert.status === "new",
   ).length;
+
+  const sosLegendItems = [
+    {
+      label: "Fire",
+      description: "Reason starts with FIRE",
+      icon: Flame,
+      iconClass: "text-orange-600",
+    },
+    {
+      label: "Security",
+      description: "Reason starts with SECURITY",
+      icon: ShieldAlert,
+      iconClass: "text-amber-600",
+    },
+    {
+      label: "Medical",
+      description: "Reason starts with MEDICAL",
+      icon: HeartPulse,
+      iconClass: "text-blue-600",
+    },
+    {
+      label: "Accident",
+      description: "Road/impact emergency",
+      icon: CarFront,
+      iconClass: "text-red-600",
+    },
+    {
+      label: "Lost",
+      description: "Missing/lost tourist",
+      icon: MapPin,
+      iconClass: "text-indigo-600",
+    },
+    {
+      label: "General",
+      description: "Unclassified emergency",
+      icon: AlertCircle,
+      iconClass: "text-gray-600",
+    },
+  ];
 
   useEffect(() => {
     let subId: string | null = null;
@@ -484,6 +756,12 @@ const AlertsPanel: React.FC = () => {
               {newAlertsCount} New Alert{newAlertsCount > 1 ? "s" : ""}
             </Badge>
           )}
+          <Badge
+            variant="outline"
+            className={`px-3 py-1.5 ${unitCapacity.availableUnits > 0 ? "bg-blue-50 text-blue-700 border-blue-200" : "bg-red-50 text-red-700 border-red-200"}`}
+          >
+            Units Left: {unitCapacity.availableUnits}/{unitCapacity.totalUnits}
+          </Badge>
           <Button
             variant="destructive"
             className="flex items-center space-x-2"
@@ -496,7 +774,7 @@ const AlertsPanel: React.FC = () => {
       </div>
 
       {/* Emergency Response Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <Card className="text-center bg-red-50 border-red-200">
           <CardContent className="p-4">
             <p className="text-2xl font-bold text-red-600">
@@ -531,6 +809,22 @@ const AlertsPanel: React.FC = () => {
               {alerts.filter((a) => a.status === "resolved").length}
             </p>
             <p className="text-sm text-green-700">Resolved</p>
+          </CardContent>
+        </Card>
+        <Card
+          className={`text-center ${unitCapacity.availableUnits > 0 ? "bg-indigo-50 border-indigo-200" : "bg-red-50 border-red-200"}`}
+        >
+          <CardContent className="p-4">
+            <p
+              className={`text-2xl font-bold ${unitCapacity.availableUnits > 0 ? "text-indigo-700" : "text-red-700"}`}
+            >
+              {unitCapacity.availableUnits}/{unitCapacity.totalUnits}
+            </p>
+            <p
+              className={`text-sm ${unitCapacity.availableUnits > 0 ? "text-indigo-700" : "text-red-700"}`}
+            >
+              Units Left
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -594,6 +888,38 @@ const AlertsPanel: React.FC = () => {
         </Tabs>
       </div>
 
+      <Card className="border-blue-100 bg-blue-50/40">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-sm font-semibold text-gray-800">
+              SOS Symbol Legend
+            </p>
+            <div className="inline-flex items-center rounded-full bg-red-100 text-red-700 px-2 py-0.5 text-xs font-semibold">
+              ⚡ Immediate Panic
+            </div>
+          </div>
+          <div className="mt-3 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+            {sosLegendItems.map((item) => {
+              const Icon = item.icon;
+              return (
+                <div
+                  key={item.label}
+                  className="bg-white rounded-md border border-gray-200 p-2"
+                >
+                  <div className="flex items-center gap-2 text-sm font-semibold text-gray-800">
+                    <Icon className={`w-4 h-4 ${item.iconClass}`} />
+                    <span>{item.label}</span>
+                  </div>
+                  <p className="text-[11px] text-gray-600 mt-1">
+                    {item.description}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Errors / Loading */}
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">
@@ -621,13 +947,138 @@ const AlertsPanel: React.FC = () => {
             <AuthorityAlertCard
               key={alert.id}
               alert={alert}
-              onRespond={handleRespond}
+              onAssignUnit={(alert) => {
+                if (unitCapacity.availableUnits <= 0) {
+                  showToast(
+                    "No units left. You cannot assign more than 8 units.",
+                    "error",
+                  );
+                  return;
+                }
+                navigate(
+                  `/alerts?assignAlertId=${encodeURIComponent(alert.id)}`,
+                );
+              }}
               onViewDetails={setSelectedAlert}
               isHighlighted={shouldHighlight}
             />
           );
         })}
       </div>
+
+      <Dialog
+        open={isAssignModalOpen}
+        onOpenChange={(open) => !open && closeAssignModal()}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Assign Unit</DialogTitle>
+            <DialogDescription>
+              Assign a response unit and set ETA for this SOS alert.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <p className="text-sm font-medium mb-2">Unit</p>
+              <Input
+                list="assign-unit-options"
+                value={unitQuery}
+                disabled={unitCapacity.availableUnits <= 0}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setUnitQuery(val);
+                  setSelectedUnit(val);
+                }}
+                placeholder="Select unit"
+              />
+              <datalist id="assign-unit-options">
+                {unitOptions.map((unit) => (
+                  <option key={unit} value={unit} />
+                ))}
+              </datalist>
+
+              {filteredUnitOptions.length > 0 && (
+                <div className="mt-2 max-h-28 overflow-y-auto border border-gray-200 rounded-md p-2 space-y-1">
+                  {filteredUnitOptions.map((unit) => (
+                    <button
+                      key={unit}
+                      type="button"
+                      onClick={() => {
+                        setSelectedUnit(unit);
+                        setUnitQuery(unit);
+                      }}
+                      className={`w-full text-left px-2 py-1 text-sm rounded ${selectedUnit === unit ? "bg-blue-50 text-blue-700" : "hover:bg-gray-50"}`}
+                    >
+                      {unit}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <p className="text-sm font-medium mb-2">ETA (minutes) *</p>
+              <Input
+                type="number"
+                min={0}
+                step={1}
+                required
+                disabled={unitCapacity.availableUnits <= 0}
+                value={etaMinutesInput}
+                onChange={(e) => setEtaMinutesInput(e.target.value)}
+                placeholder="Enter ETA in minutes"
+              />
+            </div>
+
+            <div>
+              <p className="text-sm font-medium mb-2">
+                Response Time (seconds) (optional)
+              </p>
+              <Input
+                type="number"
+                min={0}
+                step={1}
+                disabled={unitCapacity.availableUnits <= 0}
+                value={responseTimeInput}
+                onChange={(e) => setResponseTimeInput(e.target.value)}
+                placeholder="Leave empty to auto-calculate"
+              />
+            </div>
+            {unitCapacity.availableUnits <= 0 && (
+              <p className="text-xs text-red-600">
+                Unit pool exhausted. This authority can assign a maximum of 8
+                units.
+              </p>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={closeAssignModal}
+              disabled={isAssigning}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() =>
+                assignmentAlert && assignPoliceUnit(assignmentAlert.id)
+              }
+              disabled={
+                isAssigning ||
+                !assignmentAlert ||
+                unitCapacity.availableUnits <= 0 ||
+                etaMinutesInput.trim() === "" ||
+                (selectedUnit.trim() === "" && unitQuery.trim() === "")
+              }
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {isAssigning ? "Assigning..." : "Confirm Assignment"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Alert Detail View */}
       {selectedAlert && (

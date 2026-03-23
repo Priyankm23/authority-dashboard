@@ -1,5 +1,4 @@
-export const API_BASE_URL =
-  "https://smart-tourist-safety-app-backend-1.onrender.com";
+export const API_BASE_URL = "http://localhost:5000";
 // export const API_BASE_URL = "http://localhost:5000";
 
 // Path Deviation backend — deployed on Render
@@ -8,6 +7,8 @@ export const PATH_DEVIATION_API_BASE_URL =
   "https://path-deviation.onrender.com/api";
 
 console.info(
-  "[Config] API_BASE_URL:", API_BASE_URL,
-  "\n[Config] PATH_DEVIATION_API_BASE_URL:", PATH_DEVIATION_API_BASE_URL,
+  "[Config] API_BASE_URL:",
+  API_BASE_URL,
+  "\n[Config] PATH_DEVIATION_API_BASE_URL:",
+  PATH_DEVIATION_API_BASE_URL,
 );

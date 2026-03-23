@@ -112,7 +112,12 @@ export async function fetchRespondingAlerts(): Promise<Alert[]> {
 
 export async function assignUnit(
   alertId: string,
-  payload?: { responseTime?: string | number },
+  payload?: {
+    unit?: string;
+    responseTime?: string | number;
+    etaMinutes?: number;
+    etaArrivalAt?: string;
+  },
 ): Promise<Alert> {
   const token = localStorage.getItem("token");
   const headers: HeadersInit = {
@@ -311,7 +316,7 @@ export async function fetchPendingAlerts(): Promise<Alert[]> {
     console.warn(`Failed to fetch pending alerts: ${pendingRes.status}`);
     return [];
   } catch (error) {
-    console.info('[fetchPendingAlerts] Network error (non-critical):', error);
+    console.info("[fetchPendingAlerts] Network error (non-critical):", error);
     return [];
   }
 }

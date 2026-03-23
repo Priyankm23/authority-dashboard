@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from "react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import {
   Users,
   Search,
@@ -15,7 +17,6 @@ import {
   AlertTriangle,
   User,
   X,
-  MapPin,
   Filter,
 } from "lucide-react";
 import {
@@ -26,6 +27,10 @@ import {
   TouristRegistryItem,
   ExpiredTouristItem,
 } from "../api/touristRegistry";
+import {
+  verifyTouristRecord,
+  type VerifyTouristRecordResponse,
+} from "../api/auth";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import { Badge } from "./ui/badge";
 
@@ -38,6 +43,77 @@ function useDebounce<T>(value: T, delay: number): T {
   }, [value, delay]);
   return debouncedValue;
 }
+
+type ItineraryNode = {
+  type?: string;
+  name?: string;
+  locationName?: string;
+  address?: string;
+  scheduledTime?: string;
+  description?: string;
+};
+
+type ItineraryDay = {
+  dayNumber: number;
+  date?: string;
+  nodes: ItineraryNode[];
+};
+
+const normalizeItinerary = (itinerary: any[] | undefined): ItineraryDay[] => {
+  if (!Array.isArray(itinerary) || itinerary.length === 0) {
+    return [];
+  }
+
+  return itinerary.map((item, index) => {
+    if (typeof item === "string") {
+      return {
+        dayNumber: index + 1,
+        nodes: [{ type: "visit", name: item }],
+      };
+    }
+
+    const fallbackNode: ItineraryNode[] =
+      item && (item.location || item.activity || item.locations)
+        ? [
+            {
+              type: "visit",
+              name:
+                item.location ||
+                item.activity ||
+                (Array.isArray(item.locations)
+                  ? item.locations.join(", ")
+                  : undefined),
+            },
+          ]
+        : [];
+
+    return {
+      dayNumber: Number(item?.dayNumber || item?.day || index + 1),
+      date: item?.date,
+      nodes: Array.isArray(item?.nodes) ? item.nodes : fallbackNode,
+    };
+  });
+};
+
+const formatItineraryDayDate = (date?: string) => {
+  if (!date) return "Date not specified";
+  const parsed = new Date(date);
+  if (Number.isNaN(parsed.getTime())) return date;
+  return parsed.toLocaleDateString(undefined, {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+};
+
+const getNodeTypeLabel = (type?: string) => {
+  if (!type) return "Stop";
+  if (type.toLowerCase() === "start") return "Start";
+  if (type.toLowerCase() === "end") return "End";
+  if (type.toLowerCase() === "visit") return "Visit";
+  return type;
+};
 
 const TouristManagement: React.FC = () => {
   const [data, setData] = useState<TouristManagementData | null>(null);
@@ -57,6 +133,12 @@ const TouristManagement: React.FC = () => {
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [isRevoking, setIsRevoking] = useState(false);
   const [revokeError, setRevokeError] = useState<string | null>(null);
+  const [isVerifyingTourist, setIsVerifyingTourist] = useState(false);
+  const [verifyTouristError, setVerifyTouristError] = useState<string | null>(
+    null,
+  );
+  const [verifyTouristResult, setVerifyTouristResult] =
+    useState<VerifyTouristRecordResponse | null>(null);
 
   const debouncedSearch = useDebounce(searchTerm, 500);
 
@@ -85,6 +167,30 @@ const TouristManagement: React.FC = () => {
   useEffect(() => {
     loadData();
   }, [debouncedSearch, activeTab]);
+
+  useEffect(() => {
+    setVerifyTouristError(null);
+    setVerifyTouristResult(null);
+    setIsVerifyingTourist(false);
+  }, [selectedTourist?.touristId]);
+
+  const handleVerifyTouristRecord = async () => {
+    if (!selectedTourist?.touristId || isVerifyingTourist) return;
+
+    setIsVerifyingTourist(true);
+    setVerifyTouristError(null);
+    try {
+      const result = await verifyTouristRecord(selectedTourist.touristId);
+      setVerifyTouristResult(result);
+    } catch (error: any) {
+      setVerifyTouristResult(null);
+      setVerifyTouristError(
+        error?.message || "Failed to verify tourist record",
+      );
+    } finally {
+      setIsVerifyingTourist(false);
+    }
+  };
 
   const handleRevoke = async () => {
     if (!touristToRevoke) return;
@@ -120,17 +226,6 @@ const TouristManagement: React.FC = () => {
     }
   };
 
-  const getStatusIcon = (status: string) => {
-    switch (status?.toLowerCase()) {
-      case "active":
-        return CheckCircle;
-      case "expired":
-        return Clock;
-      default:
-        return Clock;
-    }
-  };
-
   const getSafetyScoreColor = (score: number) => {
     if (score >= 80) return "text-green-600 bg-green-50";
     if (score >= 60) return "text-yellow-600 bg-yellow-50";
@@ -141,6 +236,120 @@ const TouristManagement: React.FC = () => {
     if (!s) return "N/A";
     if (s.length > 20) return s.slice(0, 17) + "...";
     return s;
+  };
+
+  const itineraryDays = normalizeItinerary(selectedTourist?.itinerary);
+
+  const handleExportPDF = () => {
+    if (!data) return;
+
+    const doc = new jsPDF();
+
+    // Title
+    doc.setFontSize(20);
+    doc.text("Tourist Authority Dashboard Report", 14, 22);
+    doc.setFontSize(10);
+    doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 28);
+
+    // Statistics
+    doc.setFontSize(14);
+    doc.text("Analytics Overview", 14, 40);
+
+    const statsData = [
+      ["Total Tourists", data.totalTourists],
+      ["Active IDs", data.activeIDs],
+      ["Expired IDs", data.expiredIDs],
+      ["Avg Safety Score", `${data.averageSafetyScore}/100`],
+    ];
+
+    autoTable(doc, {
+      startY: 45,
+      head: [["Metric", "Value"]],
+      body: statsData,
+      theme: "grid",
+      headStyles: { fillColor: [41, 128, 185] },
+      styles: { fontSize: 10 },
+      columnStyles: { 0: { fontStyle: "bold" } },
+    });
+
+    // Active Tourists Table
+    if (data.registry.length > 0) {
+      let finalY = (doc as any).lastAutoTable.finalY + 15;
+
+      doc.setFontSize(14);
+      doc.text("Active Tourist Registry", 14, finalY);
+
+      const activeTableData = data.registry.map((t) => [
+        t.name,
+        t.touristId,
+        t.nationality,
+        t.phone,
+        new Date(t.tripStart).toLocaleDateString(),
+        t.tripEnd ? new Date(t.tripEnd).toLocaleDateString() : "Indefinite",
+        t.safetyScore,
+        t.status,
+      ]);
+
+      autoTable(doc, {
+        startY: finalY + 5,
+        head: [
+          [
+            "Name",
+            "ID",
+            "Nationality",
+            "Phone",
+            "Trip Start",
+            "Trip End",
+            "Safety",
+            "Status",
+          ],
+        ],
+        body: activeTableData,
+        theme: "striped",
+        headStyles: { fillColor: [46, 204, 113] },
+        styles: { fontSize: 8 },
+      });
+    }
+
+    // Expired Tourists Table
+    if (expiredData && expiredData.length > 0) {
+      // Check if we need a new page
+      let finalY = (doc as any).lastAutoTable.finalY + 15;
+      if (finalY > 250) {
+        doc.addPage();
+        finalY = 20;
+      }
+
+      doc.setFontSize(14);
+      doc.text("Expired Tourist Records", 14, finalY);
+
+      const expiredTableData = expiredData.map((t) => [
+        t.touristId,
+        new Date(t.expiresAt).toLocaleDateString(),
+        t.safetyScore ?? "N/A",
+        t.sosAlerts ? t.sosAlerts.length : 0,
+        t.blockchainDetails?.regTxHash ? "Yes" : "No",
+      ]);
+
+      autoTable(doc, {
+        startY: finalY + 5,
+        head: [
+          [
+            "ID",
+            "Expiry Date",
+            "Safety Score",
+            "Alerts",
+            "Blockchain Verified",
+          ],
+        ],
+        body: expiredTableData,
+        theme: "striped",
+        headStyles: { fillColor: [231, 76, 60] },
+        styles: { fontSize: 8 },
+      });
+    }
+
+    doc.save("authority_dashboard_report.pdf");
   };
 
   return (
@@ -156,7 +365,10 @@ const TouristManagement: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center space-x-4 mt-4 sm:mt-0">
-          <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors">
+          <button
+            onClick={handleExportPDF}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors"
+          >
             <Download className="h-4 w-4" />
             <span>Export Data</span>
           </button>
@@ -656,34 +868,159 @@ const TouristManagement: React.FC = () => {
                 </div>
               </div>
 
+              {/* Itinerary Section */}
+              {itineraryDays.length > 0 && (
+                <div>
+                  <h3 className="font-semibold text-gray-900 mb-3">
+                    Travel Itinerary
+                  </h3>
+                  <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 max-h-72 overflow-y-auto space-y-3">
+                    {itineraryDays.map((day, dayIndex) => (
+                      <div
+                        key={`${day.dayNumber}-${dayIndex}`}
+                        className="bg-white border border-gray-200 rounded-lg p-3"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-sm font-semibold text-gray-800">
+                            Day {day.dayNumber}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            {formatItineraryDayDate(day.date)}
+                          </p>
+                        </div>
+
+                        {day.nodes.length > 0 ? (
+                          <ul className="mt-3 space-y-2">
+                            {day.nodes.map((node, nodeIndex) => (
+                              <li
+                                key={`${day.dayNumber}-${node.name || nodeIndex}`}
+                                className="border-l-2 border-blue-200 pl-3"
+                              >
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className="text-[11px] uppercase tracking-wide text-blue-700 font-medium">
+                                    {getNodeTypeLabel(node.type)}
+                                  </span>
+                                  {node.scheduledTime && (
+                                    <span className="text-xs font-medium text-gray-600">
+                                      {node.scheduledTime}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-sm text-gray-800 font-medium">
+                                  {node.name ||
+                                    node.locationName ||
+                                    `Stop ${nodeIndex + 1}`}
+                                </p>
+                                {node.address && (
+                                  <p className="text-xs text-gray-500">
+                                    {node.address}
+                                  </p>
+                                )}
+                                {node.description && (
+                                  <p className="text-xs text-gray-600 mt-1">
+                                    {node.description}
+                                  </p>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-xs text-gray-500 mt-2">
+                            No stops listed for this day.
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div>
                 <h3 className="font-semibold text-gray-900 mb-3">
                   Blockchain Verification
                 </h3>
-                {selectedTourist.regTxHash ? (
-                  <div className="bg-green-50 p-4 rounded-lg">
-                    <p className="text-sm text-green-700 mb-2">
-                      <strong>Registration TX Hash:</strong>
-                    </p>
-                    <p className="font-mono text-xs text-green-600 break-all">
-                      {selectedTourist.regTxHash}
-                    </p>
-                  </div>
-                ) : (
+                <div className="mb-3">
+                  <button
+                    onClick={handleVerifyTouristRecord}
+                    disabled={isVerifyingTourist || !selectedTourist.touristId}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors font-medium inline-flex items-center"
+                  >
+                    {isVerifyingTourist ? (
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></span>
+                    ) : (
+                      <Shield className="w-4 h-4 mr-2" />
+                    )}
+                    {isVerifyingTourist
+                      ? "Verifying record..."
+                      : "Verify On Blockchain"}
+                  </button>
+                </div>
+
+                {verifyTouristError ? (
                   <div className="bg-red-50 p-4 rounded-lg flex items-start space-x-3">
                     <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
                     <div>
                       <p className="text-sm font-bold text-red-800 mb-1">
-                        Verification Missing
+                        Verification Failed
                       </p>
                       <p className="text-sm text-red-700">
-                        This tourist record has not been verified on the
-                        blockchain. Please verify the physical documents
-                        carefully.
+                        {verifyTouristError}
                       </p>
                     </div>
                   </div>
-                )}
+                ) : verifyTouristResult ? (
+                  <div
+                    className={`p-4 rounded-lg ${
+                      verifyTouristResult.verified
+                        ? "bg-green-50"
+                        : "bg-amber-50"
+                    }`}
+                  >
+                    <p
+                      className={`text-sm font-semibold mb-2 ${
+                        verifyTouristResult.verified
+                          ? "text-green-700"
+                          : "text-amber-800"
+                      }`}
+                    >
+                      {verifyTouristResult.verified
+                        ? "Record verified on blockchain"
+                        : "Record could not be verified"}
+                    </p>
+                    <div className="space-y-1 text-xs">
+                      <p>
+                        <strong>Tourist ID:</strong>{" "}
+                        {verifyTouristResult.touristId}
+                      </p>
+                      <p>
+                        <strong>Hashes Match In DB:</strong>{" "}
+                        {verifyTouristResult.hashesMatchInDb ? "Yes" : "No"}
+                      </p>
+                      {verifyTouristResult.recomputeVariantUsed && (
+                        <p>
+                          <strong>Recompute Variant:</strong>{" "}
+                          {verifyTouristResult.recomputeVariantUsed}
+                        </p>
+                      )}
+                      {verifyTouristResult.blockchain?.regTxHash && (
+                        <p className="font-mono break-all text-[11px]">
+                          <strong className="font-sans text-xs text-gray-700">
+                            Registration TX Hash:
+                          </strong>{" "}
+                          {verifyTouristResult.blockchain.regTxHash}
+                        </p>
+                      )}
+                      {verifyTouristResult.blockchain?.eventId && (
+                        <p className="font-mono break-all text-[11px]">
+                          <strong className="font-sans text-xs text-gray-700">
+                            Event ID:
+                          </strong>{" "}
+                          {verifyTouristResult.blockchain.eventId}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>

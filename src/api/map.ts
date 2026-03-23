@@ -1,10 +1,12 @@
 import { API_BASE_URL, PATH_DEVIATION_API_BASE_URL } from "../config";
 const API_BASE = import.meta.env.VITE_API_BASE_URL || API_BASE_URL;
 const PATH_DEVIATION_API_BASE =
-  import.meta.env.VITE_PATH_DEVIATION_API_BASE ||
-  PATH_DEVIATION_API_BASE_URL;
+  import.meta.env.VITE_PATH_DEVIATION_API_BASE || PATH_DEVIATION_API_BASE_URL;
 
-console.info('[map.ts] Using PATH_DEVIATION_API_BASE:', PATH_DEVIATION_API_BASE);
+console.info(
+  "[map.ts] Using PATH_DEVIATION_API_BASE:",
+  PATH_DEVIATION_API_BASE,
+);
 
 export interface MapStats {
   totalTourists: number;
@@ -67,6 +69,17 @@ export interface MapIncident {
   type: "incident";
   category: string;
   location: { lat: number; lng: number };
+}
+
+export interface CreateDangerZonePayload {
+  name: string;
+  type: "circle" | "polygon";
+  coords: [number, number];
+  radiusKm?: number;
+  riskLevel: string;
+  category: string;
+  state: string;
+  source: string;
 }
 
 export interface MapOverviewResponse {
@@ -177,7 +190,60 @@ export async function fetchMapOverview(): Promise<MapOverviewResponse> {
 
   const json = await res.json();
   if (json.success) {
-    return json as MapOverviewResponse;
+    const baseMapData = json?.mapData || json?.data?.mapData || {};
+    const rawIncidents = Array.isArray(baseMapData?.incidents)
+      ? baseMapData.incidents
+      : [];
+
+    const normalizedIncidents: MapIncident[] = rawIncidents
+      .map((incident: any, index: number) => {
+        const coords = incident?.location?.coordinates;
+        const rawLng =
+          incident?.location?.lng ??
+          (Array.isArray(coords) ? coords[0] : undefined);
+        const rawLat =
+          incident?.location?.lat ??
+          (Array.isArray(coords) ? coords[1] : undefined);
+
+        const lng = Number(rawLng);
+        const lat = Number(rawLat);
+
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+          return null;
+        }
+
+        return {
+          id: String(incident?.id || incident?._id || `incident-${index}`),
+          title: String(
+            incident?.title || incident?.name || "Untitled Incident",
+          ),
+          type: "incident",
+          category: String(incident?.category || incident?.type || "other"),
+          location: { lat, lng },
+        } as MapIncident;
+      })
+      .filter((incident: MapIncident | null): incident is MapIncident =>
+        Boolean(incident),
+      );
+
+    return {
+      ...json,
+      mapData: {
+        ...baseMapData,
+        tourists: Array.isArray(baseMapData?.tourists)
+          ? baseMapData.tourists
+          : [],
+        zones: Array.isArray(baseMapData?.zones) ? baseMapData.zones : [],
+        activeAlerts: Array.isArray(baseMapData?.activeAlerts)
+          ? baseMapData.activeAlerts
+          : [],
+        riskGrids: Array.isArray(baseMapData?.riskGrids)
+          ? baseMapData.riskGrids
+          : [],
+        incidents: normalizedIncidents,
+      },
+      stats: json?.stats || json?.data?.stats,
+    } as MapOverviewResponse;
   }
   throw new Error(json.message || "Failed to load map overview");
 }
@@ -195,11 +261,15 @@ export async function fetchStyledZones(): Promise<StyledZonesResponse> {
 
 export async function fetchLatestSafetyUsers(): Promise<SafetyLatestUser[]> {
   const url = `${PATH_DEVIATION_API_BASE}/safety/users/latest?minutes=1440&limit=1000`;
-  console.info('[fetchLatestSafetyUsers] Fetching from:', url);
+  console.info("[fetchLatestSafetyUsers] Fetching from:", url);
 
   const res = await fetch(url);
   if (!res.ok) {
-    console.error('[fetchLatestSafetyUsers] Request failed:', res.status, res.statusText);
+    console.error(
+      "[fetchLatestSafetyUsers] Request failed:",
+      res.status,
+      res.statusText,
+    );
     throw new Error(`Failed to fetch safety latest users: ${res.status}`);
   }
 
@@ -248,12 +318,47 @@ export async function fetchLatestSafetyUsers(): Promise<SafetyLatestUser[]> {
       emergencyContact,
       dayWiseItinerary,
       location: { lat, lng },
-      timestamp: String(row?.timestamp || row?.updatedAt || new Date().toISOString()),
+      timestamp: String(
+        row?.timestamp || row?.updatedAt || new Date().toISOString(),
+      ),
       activeZoneCount: Number(row?.activeZoneCount ?? row?.zones ?? 0),
       safetyScore,
     });
   }
 
-  console.info(`[fetchLatestSafetyUsers] ✅ Received ${json.users.length} raw users, normalized to ${normalized.length}`);
+  console.info(
+    `[fetchLatestSafetyUsers] ✅ Received ${json.users.length} raw users, normalized to ${normalized.length}`,
+  );
   return normalized;
+}
+
+export async function createDangerZone(
+  payload: CreateDangerZonePayload,
+): Promise<{ success: boolean; message?: string; data?: any }> {
+  const token = localStorage.getItem("token");
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_BASE}/api/authority/map/danger-zone`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+  });
+
+  const json = await res
+    .json()
+    .catch(() => ({ success: false, message: "Invalid response" }));
+
+  if (!res.ok || json?.success === false) {
+    throw new Error(
+      json?.message || `Failed to create danger zone: ${res.status}`,
+    );
+  }
+
+  return json;
 }
