@@ -70,6 +70,7 @@ const getCircleCoordinates = (
 // Pattern overlays are intentionally disabled because Mapbox GL JS does not
 // support SVG in loadImage, and unsupported pattern assets break rendering logs.
 const ENABLE_PATTERN_OVERLAYS = false;
+const COLOCATED_COORD_TOLERANCE = 0.00005;
 
 type LayerVisibility = {
   sos: boolean;
@@ -1017,6 +1018,33 @@ const TouristMap: React.FC = () => {
   // Using expressions directly in layers below
 
   const onMapClick = useCallback((event: any) => {
+    const getCoLocatedTouristIds = (touristId: string): string[] => {
+      if (!data) return [touristId];
+
+      const anchor = data.mapData.tourists.find((tourist) => tourist.id === touristId);
+      if (!anchor) return [touristId];
+
+      const anchorLat = Number(anchor.location?.lat);
+      const anchorLng = Number(anchor.location?.lng);
+      if (!Number.isFinite(anchorLat) || !Number.isFinite(anchorLng)) {
+        return [touristId];
+      }
+
+      const coLocatedIds = data.mapData.tourists
+        .filter((tourist) => {
+          const lat = Number(tourist.location?.lat);
+          const lng = Number(tourist.location?.lng);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+          return (
+            Math.abs(lat - anchorLat) <= COLOCATED_COORD_TOLERANCE &&
+            Math.abs(lng - anchorLng) <= COLOCATED_COORD_TOLERANCE
+          );
+        })
+        .map((tourist) => tourist.id);
+
+      return coLocatedIds.length ? Array.from(new Set(coLocatedIds)) : [touristId];
+    };
+
     const clickedFeatures = event.features || [];
     const touristFeatures = clickedFeatures.filter(
       (candidate: any) =>
@@ -1033,12 +1061,15 @@ const TouristMap: React.FC = () => {
         ),
       );
 
-      if (uniqueTouristIds.length > 1) {
-        // Keep all co-located tourists accessible from the side panel.
-        setCoLocatedTouristIds(uniqueTouristIds);
-      } else {
-        setCoLocatedTouristIds([]);
-      }
+      const fallbackCoLocatedIds =
+        uniqueTouristIds.length > 1
+          ? uniqueTouristIds
+          : getCoLocatedTouristIds(uniqueTouristIds[0]);
+
+      // Keep all co-located tourists accessible from the side panel.
+      setCoLocatedTouristIds(
+        fallbackCoLocatedIds.length > 1 ? fallbackCoLocatedIds : [],
+      );
 
       setSelectedEntity({ id: uniqueTouristIds[0], type: "tourist" });
       return;
@@ -1074,7 +1105,7 @@ const TouristMap: React.FC = () => {
       setCoLocatedTouristIds([]);
       setSelectedEntity(null);
     }
-  }, []);
+  }, [data]);
 
   const onMapLoad = useCallback(() => {}, []);
 
