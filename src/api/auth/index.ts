@@ -77,7 +77,7 @@ export async function getCurrentUser(): Promise<AuthResponse> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
   try {
-    const url = `${AUTH_BASE}/api/authority/me`;
+    const url = `${AUTH_BASE}/api/auth/me`;
     console.debug("getCurrentUser: fetching", url);
     const token = localStorage.getItem("token");
     const headers: HeadersInit = {};
@@ -113,7 +113,7 @@ export async function getCurrentUser(): Promise<AuthResponse> {
 }
 
 export async function signup(payload: SignupPayload): Promise<AuthResponse> {
-  const res = await fetch(`${AUTH_BASE}/api/authority/signup`, {
+  const res = await fetch(`${AUTH_BASE}/api/auth/signup`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -137,7 +137,7 @@ export async function login(
   email: string,
   password: string,
 ): Promise<AuthResponse> {
-  const res = await fetch(`${AUTH_BASE}/api/authority/login`, {
+  const res = await fetch(`${AUTH_BASE}/api/auth/login-authority`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),

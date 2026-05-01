@@ -32,10 +32,7 @@ const Signup: React.FC<SignupProps> = () => {
         const headers: HeadersInit = {};
         const token = localStorage.getItem("token");
         if (token) headers["Authorization"] = `Bearer ${token}`;
-        const response = await fetch(
-          `${API_BASE_URL}/api/authority/count`,
-          { headers },
-        );
+        const response = await fetch(`${API_BASE_URL}/count`, { headers });
         const data = await response.json();
         if (data.success) {
           // Animate from 0 to target count
